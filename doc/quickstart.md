@@ -1,13 +1,19 @@
 # Quickstart
 
 1. Install and activate the plugin (ZIP from the GitHub release or the folder `kornsw-ujmwqueue`).
-2. Open *Settings > UJMW Queue* and create two keys:
+2. Open *Settings > UJMW Queue*, tab **Security**, and create two keys:
    - role `processor`, routes e.g. `api/reports*`
    - role `caller`, routes e.g. `api/reports*`
 
    Copy each key when it is shown - it is displayed only once.
-3. Start a processor against `https://<site>/ujmw/<route>/_queue`, e.g. with the .NET `UjmwQueueClient` (URL getter returns `https://<site>/ujmw/<route>`, auth header getter returns `Bearer <processor key>`). Its first dequeue creates the queue; it appears on the admin page.
-4. Point the caller's UJMW client to `https://<site>/ujmw/<route>` with `Bearer <caller key>`. Nothing else changes for the caller.
+3. Start a processor against `https://<site>/ujmw/<route>/_queue`, e.g. with the .NET `UjmwQueueClient` (URL getter returns `https://<site>/ujmw/<route>`, auth header getter returns `Bearer <processor key>`; the `Bearer ` prefix is optional). Name the processor `?processor=<agent>#<instance>` (e.g. `reportAgent#host1-pid4711`); without `#` the relay assigns a discriminator from the time of the first contact. Its first dequeue creates the endpoint; it appears on the tabs **Processors** and **Endpoints**.
+4. Point the caller's UJMW client to `https://<site>/ujmw/<route>` with `Bearer <caller key>`. Nothing else changes for the caller. Calls are rejected immediately with `No processor available` while no processor polls the endpoint.
+5. Optional: switch on **Monitoring** for the endpoint (email on overflow or when no processor is available), and on the tab **Security** lock new endpoints by default. Other WordPress plugins can call endpoints without HTTP, see [api.md](api.md).
+
+## Operating
+
+- **Processors** tab: green LED = polling, flickering = busy, yellow = no contact for 5 min, off = 60 min. The "no entry" icon behind an instance drains it (orange, no new jobs), a second click kills its running jobs, a click on red unlocks. `[CANCEL]` aborts the running jobs of one instance.
+- **Endpoints** tab: the same lock per endpoint (processors keep running, they just get no jobs of this endpoint). New endpoints that are locked by default are released here.
 
 ## Calling the protocol by hand
 

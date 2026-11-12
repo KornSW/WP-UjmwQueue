@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace KornSW\UjmwQueue\Relay;
 
-use KornSW\UjmwQueue\Clock;
 use KornSW\UjmwQueue\Http\HttpRequest;
 use KornSW\UjmwQueue\Http\HttpResponse;
 use KornSW\UjmwQueue\Http\RelayPath;
@@ -16,7 +15,6 @@ use KornSW\UjmwQueue\Queue\QueueRepository;
 use KornSW\UjmwQueue\Queue\QueueService;
 use KornSW\UjmwQueue\Security\AccessGuard;
 use KornSW\UjmwQueue\Security\KeyStore;
-use KornSW\UjmwQueue\Settings;
 
 /**
  * Caller side: a regular-looking UJMW endpoint '<route>/<Method>' including the long-running protocol
@@ -25,9 +23,9 @@ use KornSW\UjmwQueue\Settings;
 final class CallerEndpoint {
 
   public function __construct(
-    private readonly Settings $settings,
     private readonly QueueRepository $queues,
     private readonly QueueService $queueService,
+    private readonly CallerOperations $operations,
     private readonly AccessGuard $accessGuard
   ) {
   }
@@ -68,7 +66,7 @@ final class CallerEndpoint {
     if ($denied !== null) {
       return $denied;
     }
-    return HttpResponse::json(Json::encode([
+    return HttpResponse::json(Json::encodePretty([
       'route' => $queue->route,
       'methods' => $queue->methods,
       'relay' => 'kornsw-ujmwqueue',
@@ -77,8 +75,7 @@ final class CallerEndpoint {
   }
 
   /**
-   * POST: enqueues the call. With 'wait' (long-running method) the response returns after at most 'wait' seconds,
-   * otherwise (regular method) it blocks until the entry has terminated or the synchronous timeout elapsed.
+   * POST: enqueues the call ('wait' = long-running method).
    */
   private function initiate(HttpRequest $request, QueueRecord $queue, string $methodName): HttpResponse {
     if ($request->isBodyTooLarge()) {
@@ -91,31 +88,8 @@ final class CallerEndpoint {
     if (Json::decodeObject($requestJson) === null) {
       return HttpResponse::fault('Request body must be a JSON object', 400);
     }
-
     $isLongRunning = $request->hasQuery('wait');
-    $enqueueResult = $this->queueService->enqueue($queue, $methodName, $requestJson, $isLongRunning);
-    if (is_string($enqueueResult)) {
-      if ($isLongRunning) {
-        return HttpResponse::json(Json::buildObject(['fault' => $enqueueResult, 'async' => ['execState' => 3]]));
-      }
-      return HttpResponse::fault($enqueueResult);
-    }
-
-    if ($isLongRunning) {
-      $entry = $this->queueService->waitForTermination($enqueueResult, $this->getWaitSeconds($request));
-      if ($entry->state->isTerminal()) {
-        // completed within the wait time: nothing left to poll, therefore no asyncId
-        return HttpResponse::json(Json::addMembers((string) $entry->responseJson, ['async' => ['execState' => $entry->getExecState()]]));
-      }
-      return $this->buildRunningResponse($entry, true);
-    }
-
-    $entry = $this->queueService->waitForTermination($enqueueResult, $this->prepareSynchronousTimeout());
-    if ($entry->state->isTerminal()) {
-      return HttpResponse::json((string) $entry->responseJson);
-    }
-    $this->queueService->requestCancel($entry);
-    return HttpResponse::fault(QueueService::FAULT_TIMEOUT);
+    return HttpResponse::json($this->operations->initiate($queue, $methodName, $requestJson, $isLongRunning, $this->getWaitSeconds($request)));
   }
 
   /**
@@ -131,10 +105,7 @@ final class CallerEndpoint {
     if ($entry === null) {
       return HttpResponse::fault(QueueService::FAULT_WRONG_ASYNC);
     }
-    if ($entry->state->isTerminal()) {
-      return $this->buildTerminalResponse($entry);
-    }
-    return $this->buildRunningResponse($entry, false);
+    return HttpResponse::json($this->operations->poll($entry, 0.0));
   }
 
   /**
@@ -145,12 +116,7 @@ final class CallerEndpoint {
     if ($entry === null) {
       return HttpResponse::fault(QueueService::FAULT_WRONG_ASYNC);
     }
-    $entry = $this->queueService->requestCancel($entry);
-    $entry = $this->queueService->waitForTermination($entry, $this->getWaitSeconds($request));
-    if ($entry->state->isTerminal()) {
-      return $this->buildTerminalResponse($entry);
-    }
-    return $this->buildRunningResponse($entry, false);
+    return HttpResponse::json($this->operations->cancel($entry, $this->getWaitSeconds($request)));
   }
 
   /**
@@ -167,42 +133,6 @@ final class CallerEndpoint {
   }
 
   /**
-   * Response for a running entry: drained callback invocations, 'fault' null and the 'async' state.
-   */
-  private function buildRunningResponse(Entry $entry, bool $isInitiating): HttpResponse {
-    [$entry, $drainedInvocations] = $this->queueService->drainCallbacks($entry);
-    if ($entry->state->isTerminal()) {
-      return $this->buildTerminalResponse($entry);
-    }
-    $async = [
-      'asyncId' => $entry->id,
-      'execState' => $entry->getExecState(),
-      'pollNbf' => Clock::toIsoUtc($this->queueService->calculatePollNbf($entry)),
-      'cancellable' => !$entry->isCancellationRequested,
-    ];
-    if ($isInitiating) {
-      $async['pollingSecret'] = $entry->callerSecret;
-    }
-    $members = $drainedInvocations;
-    $members['fault'] = null;
-    $members['async'] = $async;
-    return HttpResponse::json(Json::buildObject($members));
-  }
-
-  /**
-   * Response for a terminated entry: the final UJMW response of the processor plus the 'async' state.
-   */
-  private function buildTerminalResponse(Entry $entry): HttpResponse {
-    $async = [
-      'asyncId' => $entry->id,
-      'execState' => $entry->getExecState(),
-      'pollNbf' => Clock::toIsoUtc(Clock::nowMs()),
-      'cancellable' => false,
-    ];
-    return HttpResponse::json(Json::addMembers((string) $entry->responseJson, ['async' => $async]));
-  }
-
-  /**
    * The 'wait' query parameter, limited by the setting 'maxWaitSec'.
    */
   private function getWaitSeconds(HttpRequest $request): float {
@@ -210,23 +140,7 @@ final class CallerEndpoint {
     if ($wait === null || !is_numeric($wait)) {
       return 0.0;
     }
-    return max(0.0, min((float) $wait, (float) $this->settings->getInt('maxWaitSec')));
-  }
-
-  /**
-   * Raises the PHP time limit for a blocking synchronous call and returns the usable timeout in seconds.
-   */
-  private function prepareSynchronousTimeout(): float {
-    $timeoutSeconds = $this->settings->getInt('synchronousCallTimeoutSec');
-    $isLimitRaised = false;
-    if (function_exists('set_time_limit')) {
-      $isLimitRaised = set_time_limit($timeoutSeconds + 30);
-    }
-    $maxExecutionTime = (int) ini_get('max_execution_time');
-    if (!$isLimitRaised && $maxExecutionTime > 0) {
-      $timeoutSeconds = min($timeoutSeconds, max(1, $maxExecutionTime - 5));
-    }
-    return (float) $timeoutSeconds;
+    return $this->operations->limitWaitSeconds((float) $wait);
   }
 
 }

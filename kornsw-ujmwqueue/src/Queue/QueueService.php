@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace KornSW\UjmwQueue\Queue;
 
 use KornSW\UjmwQueue\Clock;
+use KornSW\UjmwQueue\Maintenance\Retention;
+use KornSW\UjmwQueue\Monitoring\Notifier;
+use KornSW\UjmwQueue\Processors\LockState;
+use KornSW\UjmwQueue\Processors\ProcessorInstance;
+use KornSW\UjmwQueue\Processors\ProcessorRegistry;
 use KornSW\UjmwQueue\Protocol\AsyncId;
 use KornSW\UjmwQueue\Protocol\CallbackBuffer;
 use KornSW\UjmwQueue\Protocol\Json;
@@ -31,6 +36,10 @@ final class QueueService {
   public const FAULT_BUFFER_FULL = 'Callback buffer full - retry with the next heartbeat';
   public const FAULT_NOT_CONFIRMED = 'Dequeue not confirmed by a heartbeat';
   public const FAULT_TIMEOUT = 'Queue processing timeout';
+  public const FAULT_NO_PROCESSOR = 'No processor available';
+  public const FAULT_PROCESSOR_LOCK = 'Processor-Lock applied during execution';
+  public const FAULT_ENDPOINT_LOCK = 'Endpoint-Lock applied during execution';
+  public const FAULT_ADMIN_CANCEL = 'Cancelled by administrator';
 
   /**
    * Filter hook deciding about redelivery after the loss of a confirmed lease (decision Q-RETRY, default: no).
@@ -60,9 +69,32 @@ final class QueueService {
     private readonly Settings $settings,
     private readonly QueueRepository $queues,
     private readonly EntryRepository $entries,
-    private readonly TerminationLog $terminationLog
+    private readonly TerminationLog $terminationLog,
+    private readonly ProcessorRegistry $processors,
+    private readonly Notifier $notifier,
+    private readonly Retention $retention
   ) {
   }
+
+  #region Learning
+
+  /**
+   * Returns the queue of a route and learns (creates) it if it is unknown. With the security setting
+   * 'lockNewEndpoints' a new queue starts locked and the administrator is notified.
+   */
+  public function getOrLearnQueue(string $route): QueueRecord {
+    $initialLockLevel = LockState::LEVEL_NONE;
+    if ($this->settings->getBool('lockNewEndpoints')) {
+      $initialLockLevel = LockState::LEVEL_DRAIN;
+    }
+    [$queue, $isCreated] = $this->queues->getOrCreate($route, Clock::nowMs(), $initialLockLevel);
+    if ($isCreated && $queue->lockLevel !== LockState::LEVEL_NONE) {
+      $this->notifier->notifyNewEndpointLocked($queue);
+    }
+    return $queue;
+  }
+
+  #endregion
 
   #region Caller side
 
@@ -72,12 +104,17 @@ final class QueueService {
    */
   public function enqueue(QueueRecord $queue, string $methodName, string $requestJson, bool $isLongRunning): Entry|string {
     $this->runHousekeeping(false);
+    $this->queues->learnMethods($queue, [$methodName]);
+    $nowMs = Clock::nowMs();
+    if (!$this->processors->isAvailableFor($queue, $nowMs)) {
+      $this->notifier->notifyUnserved($queue);
+      return self::FAULT_NO_PROCESSOR;
+    }
     if ($this->entries->countInStates($queue->id, [EntryState::Queued]) >= $this->settings->getInt('maxQueueSize')) {
+      $this->notifier->notifyOverflow($queue);
       return self::FAULT_CAPACITY;
     }
-    $this->queues->learnMethods($queue, [$methodName]);
 
-    $nowMs = Clock::nowMs();
     for ($attempt = 0; $attempt < 5; $attempt++) {
       $entryId = AsyncId::create($nowMs);
       $isInserted = $this->entries->insert([
@@ -90,8 +127,10 @@ final class QueueService {
         'request_json' => $requestJson,
         'caller_secret' => PollingAuth::generateSecret(),
         'created_ms' => $nowMs,
+        'queued_ms' => $nowMs,
       ]);
       if ($isInserted) {
+        $this->queues->incrementCalls($queue->id);
         $entry = $this->entries->find($entryId);
         if ($entry !== null) {
           return $entry;
@@ -216,8 +255,12 @@ final class QueueService {
   /**
    * Allocates the front-most queued entry matching the filter (tentative lease, must be confirmed by a heartbeat).
    */
-  public function dequeue(QueueRecord $queue, MethodFilter $filter, string $processorName): ?Lease {
+  public function dequeue(QueueRecord $queue, MethodFilter $filter, ProcessorInstance $processor): ?Lease {
     $this->runHousekeeping(false);
+    if ($queue->lockLevel !== LockState::LEVEL_NONE || $processor->lockLevel !== LockState::LEVEL_NONE) {
+      // locked: answered as if there was nothing to process
+      return null;
+    }
 
     $methodNames = null;
     if (!$filter->matchesAll()) {
@@ -244,7 +287,8 @@ final class QueueService {
           'state' => EntryState::Allocated->value,
           'processor_secret' => $pollingSecret,
           'withdrawn_secret' => null,
-          'processor_name' => $processorName,
+          'processor_name' => $processor->getFullName(),
+          'processor_id' => $processor->id,
           'allocated_ms' => $nowMs,
           'heartbeat_ms' => $nowMs,
         ]);
@@ -285,7 +329,7 @@ final class QueueService {
    * @param array<string, list<mixed>> $invocations
    * @return array{cancellationRequested: bool, fault: ?string}
    */
-  public function heartbeat(ProcessorAccess $access, string $processorName, array $invocations): array {
+  public function heartbeat(ProcessorAccess $access, array $invocations): array {
     if ($access->isWithdrawn) {
       return ['cancellationRequested' => true, 'fault' => self::FAULT_WITHDRAWN];
     }
@@ -293,10 +337,15 @@ final class QueueService {
     $confirmationTimeoutMs = $this->settings->getInt('dequeueConfirmationTimeoutSec') * 1000;
     $bufferLimit = $this->settings->getInt('callbackBufferLimit');
 
-    $this->mutate($access->entry->id, function (Entry $current) use (&$result, $access, $processorName, $invocations, $confirmationTimeoutMs, $bufferLimit): ?array {
+    $this->mutate($access->entry->id, function (Entry $current) use (&$result, $access, $invocations, $confirmationTimeoutMs, $bufferLimit): ?array {
       $result = ['cancellationRequested' => true, 'fault' => self::FAULT_LEASE_LOST];
       if ($current->processorSecret !== $access->entry->processorSecret) {
         $result = ['cancellationRequested' => true, 'fault' => self::FAULT_WITHDRAWN];
+        return null;
+      }
+      if ($current->state->isTerminal() && $current->isCancellationRequested) {
+        // aborted by an administrator (lock / cancel): the caller has its fault already, the processor shall stop
+        $result = ['cancellationRequested' => true, 'fault' => null];
         return null;
       }
       if ($current->state->isTerminal() || $current->state === EntryState::Queued) {
@@ -304,7 +353,7 @@ final class QueueService {
       }
 
       $nowMs = Clock::nowMs();
-      $changes = ['heartbeat_ms' => $nowMs, 'processor_name' => $processorName];
+      $changes = ['heartbeat_ms' => $nowMs];
       if ($current->state === EntryState::Allocated) {
         if ($nowMs > ($current->allocatedMs + $confirmationTimeoutMs)) {
           $result = ['cancellationRequested' => true, 'fault' => self::FAULT_WITHDRAWN];
@@ -344,7 +393,7 @@ final class QueueService {
         return null;
       }
       if ($current->state->isTerminal()) {
-        if ($current->state !== EntryState::Cancelled) {
+        if ($current->state !== EntryState::Cancelled && !$current->isCancellationRequested) {
           $fault = self::FAULT_LEASE_LOST;
         }
         return null;
@@ -366,6 +415,7 @@ final class QueueService {
         'state' => EntryState::Queued->value,
         'position' => RequeuePosition::calculateSortPosition($index, $positions),
         'release_count' => $releaseCount,
+        'queued_ms' => Clock::nowMs(),
         'processor_secret' => null,
         'withdrawn_secret' => null,
         'allocated_ms' => 0,
@@ -409,6 +459,33 @@ final class QueueService {
       return $this->getTerminationChanges($current, EntryState::Completed, $responseJson);
     });
     return $fault;
+  }
+
+  #endregion
+
+  #region Administration
+
+  /**
+   * Aborts the active jobs of a processor instance or of a queue (administrator lock or cancel): the caller gets the
+   * fault immediately, the processor gets 'cancellationRequested' with its next heartbeat. Returns the number of
+   * aborted jobs.
+   */
+  public function abortActiveJobs(?int $processorId, ?int $queueId, string $fault): int {
+    $abortedCount = 0;
+    foreach ($this->entries->findActive($processorId, $queueId, 1000) as $activeEntry) {
+      $result = $this->mutate($activeEntry->id, function (Entry $current) use ($fault): ?array {
+        if ($current->state !== EntryState::Allocated && $current->state !== EntryState::Leased) {
+          return null;
+        }
+        $changes = $this->getTerminationChanges($current, EntryState::Failed, Json::encode(['fault' => $fault]));
+        $changes['cancel_requested'] = 1;
+        return $changes;
+      });
+      if ($result !== null && !$result[0]->state->isTerminal() && $result[1]->state->isTerminal()) {
+        $abortedCount++;
+      }
+    }
+    return $abortedCount;
   }
 
   #endregion
@@ -462,6 +539,8 @@ final class QueueService {
       });
     }
 
+    $this->failUnservedEntries($nowMs);
+
     $this->entries->deleteExpiredOutcomes(
       $nowMs,
       $this->settings->getInt('minOutcomePreservTime'),
@@ -469,6 +548,48 @@ final class QueueService {
       $this->settings->getInt('outcomeCleanupLimit')
     );
     $this->terminationLog->prune($nowMs);
+    $this->retention->runIfDue($nowMs);
+  }
+
+  /**
+   * Fails queued entries that waited longer than 'incomingCallQueueWaitTimeoutSec', and all queued entries of
+   * queues without any available processor ('No processor available').
+   */
+  private function failUnservedEntries(int $nowMs): void {
+    $faultJson = Json::encode(['fault' => self::FAULT_NO_PROCESSOR]);
+    $waitThresholdMs = $nowMs - ($this->settings->getInt('incomingCallQueueWaitTimeoutSec') * 1000);
+    $expiredQueueIds = [];
+    foreach ($this->entries->findStale(EntryState::Queued, 'queued_ms', $waitThresholdMs, 100) as $staleEntry) {
+      $this->mutate($staleEntry->id, function (Entry $current) use ($waitThresholdMs, $faultJson): ?array {
+        if ($current->state !== EntryState::Queued || $current->queuedMs >= $waitThresholdMs) {
+          return null;
+        }
+        return $this->getTerminationChanges($current, EntryState::Failed, $faultJson);
+      });
+      $expiredQueueIds[$staleEntry->queueId] = true;
+    }
+    foreach (array_keys($expiredQueueIds) as $queueId) {
+      $queue = $this->queues->findById($queueId);
+      if ($queue !== null) {
+        $this->notifier->notifyUnserved($queue);
+      }
+    }
+
+    foreach ($this->entries->getQueueIdsWithQueuedEntries() as $queueId) {
+      $queue = $this->queues->findById($queueId);
+      if ($queue === null || $this->processors->isAvailableFor($queue, $nowMs)) {
+        continue;
+      }
+      foreach ($this->entries->findQueued($queueId, null, false, 100, 0) as $queuedEntry) {
+        $this->mutate($queuedEntry->id, function (Entry $current) use ($faultJson): ?array {
+          if ($current->state !== EntryState::Queued) {
+            return null;
+          }
+          return $this->getTerminationChanges($current, EntryState::Failed, $faultJson);
+        });
+      }
+      $this->notifier->notifyUnserved($queue);
+    }
   }
 
   #endregion
@@ -487,6 +608,7 @@ final class QueueService {
       'position' => RequeuePosition::calculateSortPosition(0, $this->entries->getQueuedPositions($entry->queueId, 1)),
       'withdrawn_secret' => $entry->processorSecret,
       'processor_secret' => null,
+      'queued_ms' => Clock::nowMs(),
       'allocated_ms' => 0,
       'heartbeat_ms' => 0,
     ];

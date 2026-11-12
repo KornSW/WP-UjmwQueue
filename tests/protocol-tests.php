@@ -3,6 +3,9 @@
 declare(strict_types=1);
 
 use KornSW\UjmwQueue\Http\RelayPath;
+use KornSW\UjmwQueue\Processors\Liveness;
+use KornSW\UjmwQueue\Processors\LockState;
+use KornSW\UjmwQueue\Processors\ProcessorName;
 use KornSW\UjmwQueue\Protocol\AsyncId;
 use KornSW\UjmwQueue\Protocol\CallbackBuffer;
 use KornSW\UjmwQueue\Protocol\Json;
@@ -110,3 +113,32 @@ TestRun::check(RoutePattern::matches('*', 'anything/here'), "'*' grants all rout
 TestRun::check(RoutePattern::matches('api/reports*, other', 'api/reports/v2'), 'prefix pattern matches');
 TestRun::check(!RoutePattern::matches('api/reports', 'api/reports2'), 'exact pattern does not match a longer route');
 TestRun::check(RoutePattern::matches('API/Reports', 'api/reports'), 'patterns are case-insensitive');
+
+// --- Processors: names, liveness, locks
+
+$name = ProcessorName::parse('reportAgent#pid-4711');
+TestRun::check($name->agentName === 'reportAgent' && $name->instanceName === 'pid-4711', "'#' separates agent and instance");
+$name = ProcessorName::parse('agent#a#b');
+TestRun::check($name->agentName === 'agent' && $name->instanceName === 'a#b', 'only the first # separates');
+$name = ProcessorName::parse('worker1');
+TestRun::check($name->agentName === 'worker1' && $name->instanceName === null, 'names without # get a synthetic instance');
+$name = ProcessorName::parse('worker1#');
+TestRun::check($name->agentName === 'worker1' && $name->instanceName === null, 'an empty discriminator counts as missing');
+TestRun::equals('unnamed', ProcessorName::parse(null)->agentName, 'missing name -> unnamed');
+TestRun::equals('unnamed', ProcessorName::parse('#x')->agentName, 'missing agent part -> unnamed');
+TestRun::equals('03-07#14-05-09', ProcessorName::createSyntheticInstanceName(gmmktime(14, 5, 9, 3, 7, 2026), new DateTimeZone('UTC')), 'synthetic discriminator MM-dd#HH-mm-ss');
+
+$nowMs = 10000000000;
+TestRun::equals(Liveness::IDLE, Liveness::of($nowMs - 1000, $nowMs, 0), 'recent contact without jobs -> idle');
+TestRun::equals(Liveness::BUSY, Liveness::of($nowMs - 1000, $nowMs, 2), 'recent contact with jobs -> busy');
+TestRun::equals(Liveness::SILENT, Liveness::of($nowMs - 300000, $nowMs, 2), '5 minutes silence -> silent (yellow)');
+TestRun::equals(Liveness::OFFLINE, Liveness::of($nowMs - 3600000, $nowMs, 0), '60 minutes silence -> offline');
+TestRun::check(Liveness::isAvailable($nowMs - 299999, $nowMs) && !Liveness::isAvailable($nowMs - 300000, $nowMs), 'available only while green');
+
+TestRun::equals(LockState::NONE, LockState::of(0, 3), 'level 0 -> none');
+TestRun::equals(LockState::DRAINING, LockState::of(1, 3), 'drain with jobs -> draining (orange)');
+TestRun::equals(LockState::LOCKED, LockState::of(1, 0), 'drain without jobs -> locked (red)');
+TestRun::equals(LockState::LOCKED, LockState::of(2, 0), 'kill -> locked (red)');
+TestRun::equals(LockState::LEVEL_DRAIN, LockState::getNextLevel(LockState::NONE), 'click on grey -> drain');
+TestRun::equals(LockState::LEVEL_KILL, LockState::getNextLevel(LockState::DRAINING), 'click on orange -> kill');
+TestRun::equals(LockState::LEVEL_NONE, LockState::getNextLevel(LockState::LOCKED), 'click on red -> unlock');

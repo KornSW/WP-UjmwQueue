@@ -10,7 +10,7 @@ namespace KornSW\UjmwQueue;
  */
 final class Schema {
 
-  public const VERSION = 1;
+  public const VERSION = 2;
 
   public const VERSION_OPTION = 'kornsw_uq_db_version';
 
@@ -39,6 +39,22 @@ final class Schema {
   }
 
   /**
+   * Name of the table holding the processor instances ('<agent>#<instance>').
+   */
+  public static function processorsTable(): string {
+    global $wpdb;
+    return $wpdb->prefix . 'kornsw_uq_processors';
+  }
+
+  /**
+   * Name of the table linking processor instances to the queues they have polled.
+   */
+  public static function processorQueuesTable(): string {
+    global $wpdb;
+    return $wpdb->prefix . 'kornsw_uq_processor_queues';
+  }
+
+  /**
    * Creates or upgrades the tables if the stored schema version is outdated.
    */
   public static function upgradeIfNeeded(): void {
@@ -59,6 +75,8 @@ final class Schema {
     $queuesTable = self::queuesTable();
     $entriesTable = self::entriesTable();
     $terminationsTable = self::terminationsTable();
+    $processorsTable = self::processorsTable();
+    $processorQueuesTable = self::processorQueuesTable();
 
     dbDelta("CREATE TABLE {$queuesTable} (
   id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -68,6 +86,9 @@ final class Schema {
   processors longtext NULL,
   created_ms bigint(20) NOT NULL,
   last_processor_ms bigint(20) NOT NULL DEFAULT 0,
+  lock_level tinyint(1) NOT NULL DEFAULT 0,
+  monitoring tinyint(1) NOT NULL DEFAULT 0,
+  total_calls bigint(20) NOT NULL DEFAULT 0,
   PRIMARY KEY  (id),
   UNIQUE KEY route_key (route_key)
 ) {$charsetCollate};");
@@ -85,19 +106,22 @@ final class Schema {
   processor_secret varchar(32) NULL,
   withdrawn_secret varchar(32) NULL,
   processor_name varchar(191) NULL,
+  processor_id bigint(20) unsigned NOT NULL DEFAULT 0,
   release_count int(11) NOT NULL DEFAULT 0,
   attempt_count int(11) NOT NULL DEFAULT 0,
   cancel_requested tinyint(1) NOT NULL DEFAULT 0,
   callbacks_json longtext NULL,
   row_version int(10) unsigned NOT NULL DEFAULT 0,
   created_ms bigint(20) NOT NULL,
+  queued_ms bigint(20) NOT NULL DEFAULT 0,
   allocated_ms bigint(20) NOT NULL DEFAULT 0,
   heartbeat_ms bigint(20) NOT NULL DEFAULT 0,
   terminated_ms bigint(20) NOT NULL DEFAULT 0,
   last_nbf_ms bigint(20) NOT NULL DEFAULT 0,
   PRIMARY KEY  (id),
   KEY queue_state_position (queue_id,state,position),
-  KEY state_terminated (state,terminated_ms)
+  KEY state_terminated (state,terminated_ms),
+  KEY processor_state (processor_id,state)
 ) {$charsetCollate};");
 
     dbDelta("CREATE TABLE {$terminationsTable} (
@@ -108,6 +132,30 @@ final class Schema {
   PRIMARY KEY  (id),
   KEY queue_terminated (queue_id,terminated_ms)
 ) {$charsetCollate};");
+
+    dbDelta("CREATE TABLE {$processorsTable} (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  agent_name varchar(150) NOT NULL,
+  instance_name varchar(150) NOT NULL,
+  is_synthetic tinyint(1) NOT NULL DEFAULT 0,
+  first_seen_ms bigint(20) NOT NULL,
+  last_seen_ms bigint(20) NOT NULL,
+  lock_level tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY  (id),
+  UNIQUE KEY agent_instance (agent_name,instance_name),
+  KEY last_seen (last_seen_ms)
+) {$charsetCollate};");
+
+    dbDelta("CREATE TABLE {$processorQueuesTable} (
+  processor_id bigint(20) unsigned NOT NULL,
+  queue_id bigint(20) unsigned NOT NULL,
+  last_seen_ms bigint(20) NOT NULL,
+  PRIMARY KEY  (processor_id,queue_id),
+  KEY queue_id (queue_id)
+) {$charsetCollate};");
+
+    // entries created before version 2 have no 'queued_ms' (start of the incoming call wait timeout)
+    $wpdb->query("UPDATE {$entriesTable} SET queued_ms = created_ms WHERE queued_ms = 0");
 
     update_option(self::VERSION_OPTION, self::VERSION, false);
   }

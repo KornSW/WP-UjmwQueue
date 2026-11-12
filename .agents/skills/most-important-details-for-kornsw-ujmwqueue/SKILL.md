@@ -9,7 +9,18 @@ metadata:
 
 ## Status
 
-Initial version implemented 2026-11-11/12: caller side (POST `?wait` / sync, GET poll, DELETE cancel, endpoint info), processor side (`_queue` info, dequeue, heartbeat, return, completion with `dequeueNext`), access keys, admin page, housekeeping. Next steps: `doc/work/backlog.md`.
+Initial version implemented 2026-11-11/12: caller side (POST `?wait` / sync, GET poll, DELETE cancel, endpoint info), processor side (`_queue` info, dequeue, heartbeat, return, completion with `dequeueNext`), access keys, admin page, housekeeping. Second iteration 2026-11-12 (schema v2):
+- processor instances `<agent>#<instance>` with LED status;
+- two-stage locks (drain / kill) per instance and endpoint;
+- `No processor available` (immediate or after `incomingCallQueueWaitTimeoutSec`);
+- email monitoring;
+- retention of instances, processors and endpoints;
+- tabbed admin UI with a 1-second AJAX refresh;
+- pretty-printed info JSON;
+- optional `Bearer ` prefix;
+- in-process client API `Api\QueueApi` (`doc/api.md`).
+
+Next steps: `doc/work/backlog.md`.
 
 ## Upstream specification (authoritative for the wire protocol)
 
@@ -36,10 +47,14 @@ Repository `UnifiedJsonMessageWrapper` (SmartStandards, local folder `(SmartStan
 - Every state change goes through `QueueService::mutate()` / `EntryRepository::tryUpdate()` (optimistic concurrency on `row_version`). Never write state columns directly.
 - Housekeeping runs on traffic (no cron), at most every 2 s per request; anything reporting a state to a caller must run it **before** loading the entry (bug fixed 2026-11-12 in `CallerEndpoint::poll`).
 - SQL must stay portable to the SQLite driver of WordPress Playground: no `GREATEST`, no `INSERT IGNORE`, no `DELETE ... ORDER BY/LIMIT`.
-- No ternaries, explicit `if`/`else` (guideline section 5); files UTF-8 without BOM.
+- No ternaries, explicit `if`/`else` (guideline section 5, also in `assets/admin.js`); files UTF-8 without BOM.
+- Availability and locks: `doc/decisions/decision-processor-availability-and-locks.md`.
+  - A kill sets the entry terminal **with** `cancel_requested = 1` and keeps `processor_secret`. The heartbeat then answers `cancellationRequested: true` without a fault, and `release` accepts the confirmation. Do not "clean up" the secret.
+  - The caller-side logic lives in `Relay/CallerOperations` (shared by HTTP and `Api\QueueApi`). Never duplicate it in an endpoint.
+  - Admin lock toggles carry the `expected` displayed state, so a stale click must not escalate drain to kill.
 
 ## Testing
 
 - Standalone (WordPress-free classes): `cd tests/php-wasm && npm install` once, then `node tests/php-wasm/run.mjs tests/run-tests.php` and `node tests/php-wasm/lint.mjs` (no native PHP on the dev machine).
-- End-to-end: `tests/e2e/relay-e2e.py` against a **fresh** WordPress Playground started with `tests/e2e/blueprint.json` (instructions in the script header). 33 checks passed 2026-11-12.
+- End-to-end: `tests/e2e/relay-e2e.py` against a **fresh** WordPress Playground started with `tests/e2e/blueprint.json` (instructions in the script header). Also mount `tests/e2e/helper-plugin` (TEST ONLY: admin via header `X-Uq-Test-Admin`, in-process API via `/?uqtest=`). 61 checks passed 2026-11-12. The Playground CLI emits a harmless `EPERM ... stale Playground temp dirs` warning on Windows.
 - Pitfalls: Playground requests take 2-3 s each, so the blueprint raises the confirmation / lease / sync timeouts; the blueprint must set `preferredVersions` or Playground runs PHP 8.3 and the activation fails; on Windows use `--mount-dir` (a `C:` path breaks `--mount`); stop the Playground server only by its own PID.

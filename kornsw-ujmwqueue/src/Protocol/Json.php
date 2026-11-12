@@ -25,6 +25,13 @@ final class Json {
   }
 
   /**
+   * Encodes a value with line breaks and indentation (info documents that are also opened in a browser).
+   */
+  public static function encodePretty(mixed $value): string {
+    return json_encode($value, self::ENCODE_FLAGS | JSON_PRETTY_PRINT) . "\n";
+  }
+
+  /**
    * Decodes a JSON object (objects stay 'stdClass', so '{}' and '[]' keep their meaning). Returns null if the input
    * is not valid JSON or not an object.
    */

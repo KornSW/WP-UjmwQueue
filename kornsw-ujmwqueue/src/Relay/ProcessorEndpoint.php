@@ -9,6 +9,9 @@ use KornSW\UjmwQueue\Clock;
 use KornSW\UjmwQueue\Http\HttpRequest;
 use KornSW\UjmwQueue\Http\HttpResponse;
 use KornSW\UjmwQueue\Http\RelayPath;
+use KornSW\UjmwQueue\Processors\ProcessorInstance;
+use KornSW\UjmwQueue\Processors\ProcessorName;
+use KornSW\UjmwQueue\Processors\ProcessorRegistry;
 use KornSW\UjmwQueue\Protocol\CallbackBuffer;
 use KornSW\UjmwQueue\Protocol\Json;
 use KornSW\UjmwQueue\Protocol\MethodFilter;
@@ -27,11 +30,10 @@ use KornSW\UjmwQueue\Settings;
 /**
  * Processor side: the well-known sub-route '<route>/_queue' of the UJMW queue epic (section 5):
  * GET = info / dequeue, PUT = heartbeat, DELETE = return / confirm cancellation, POST = completion.
- * The first processor contact creates (learns) the queue of the route.
+ * The first processor contact creates (learns) the queue of the route; every request records the activity of the
+ * processor instance ('?processor=<agent>#<instance>').
  */
 final class ProcessorEndpoint {
-
-  private const MAX_PROCESSOR_NAME_LENGTH = 191;
 
   public function __construct(
     private readonly Settings $settings,
@@ -39,6 +41,7 @@ final class ProcessorEndpoint {
     private readonly EntryRepository $entries,
     private readonly QueueService $queueService,
     private readonly QueueStatistics $statistics,
+    private readonly ProcessorRegistry $processors,
     private readonly AccessGuard $accessGuard
   ) {
   }
@@ -62,27 +65,28 @@ final class ProcessorEndpoint {
     }
 
     $nowMs = Clock::nowMs();
-    $processorName = self::sanitizeProcessorName($request->getQuery('processor'));
-    $queue = $this->queues->getOrCreate($route, $nowMs);
-    $queue = $this->queues->touchProcessor($queue, $processorName, $nowMs);
+    $processor = $this->processors->touch(ProcessorName::parse($request->getQuery('processor')), $nowMs);
+    $queue = $this->queueService->getOrLearnQueue($route);
+    $this->processors->link($processor, $queue->id, $nowMs);
+    $this->queues->touchProcessor($queue, $nowMs);
 
     if ($request->method === 'GET') {
-      return $this->dequeue($request, $queue, $processorName);
+      return $this->dequeue($request, $queue, $processor);
     }
     if ($request->method === 'PUT') {
-      return $this->heartbeat($request, $queue, $processorName);
+      return $this->heartbeat($request, $queue);
     }
     if ($request->method === 'DELETE') {
       return $this->release($request, $queue);
     }
     if ($request->method === 'POST') {
-      return $this->complete($request, $queue, $processorName);
+      return $this->complete($request, $queue, $processor);
     }
     return HttpResponse::fault('Method not allowed', 405)->withHeader('Allow', 'GET, PUT, DELETE, POST');
   }
 
   /**
-   * GET without 'dequeue': statistics (no side effects).
+   * GET without 'dequeue': statistics (no side effects), pretty-printed for browsers.
    */
   private function info(HttpRequest $request, string $route, string $routeKey): HttpResponse {
     if (!$this->settings->isAnonymousInfoAllowed()) {
@@ -95,27 +99,27 @@ final class ProcessorEndpoint {
     if ($queue === null) {
       return HttpResponse::fault("Unknown queue '" . $route . "'", 404);
     }
-    return HttpResponse::json(Json::encode($this->statistics->build($queue)));
+    return HttpResponse::json(Json::encodePretty($this->statistics->build($queue)));
   }
 
   /**
-   * GET with 'dequeue=<filter>': allocates the next matching entry.
+   * GET with 'dequeue=<filter>': allocates the next matching entry (nothing while the queue or instance is locked).
    */
-  private function dequeue(HttpRequest $request, QueueRecord $queue, string $processorName): HttpResponse {
+  private function dequeue(HttpRequest $request, QueueRecord $queue, ProcessorInstance $processor): HttpResponse {
     try {
       $filter = MethodFilter::parse((string) $request->getQuery('dequeue'));
     } catch (InvalidArgumentException $exception) {
       return $this->buildDequeueResponse($queue, null, $exception->getMessage());
     }
     $queue = $this->queues->learnMethods($queue, $filter->getMentionedNames());
-    $lease = $this->queueService->dequeue($queue, $filter, $processorName);
+    $lease = $this->queueService->dequeue($queue, $filter, $processor);
     return $this->buildDequeueResponse($queue, $lease, null);
   }
 
   /**
    * PUT: heartbeat (the first one confirms the allocation), optionally with buffered callback invocations.
    */
-  private function heartbeat(HttpRequest $request, QueueRecord $queue, string $processorName): HttpResponse {
+  private function heartbeat(HttpRequest $request, QueueRecord $queue): HttpResponse {
     $access = $this->queueService->findProcessorEntry($queue, $request->getQuery('requestId'), $request->getQuery('pollingSalt'), $request->getQuery('pollingHash'));
     if ($access === null) {
       return HttpResponse::json(Json::encode(['cancellationRequested' => false, 'fault' => QueueService::FAULT_WRONG_REQUEST]));
@@ -125,7 +129,7 @@ final class ProcessorEndpoint {
     } catch (InvalidArgumentException $exception) {
       return HttpResponse::json(Json::encode(['cancellationRequested' => false, 'fault' => $exception->getMessage()]));
     }
-    $result = $this->queueService->heartbeat($access, $processorName, $invocations);
+    $result = $this->queueService->heartbeat($access, $invocations);
     return HttpResponse::json(Json::encode($result));
   }
 
@@ -143,7 +147,7 @@ final class ProcessorEndpoint {
   /**
    * POST: delivers the final UJMW response; with 'dequeueNext' the next entry is allocated in the same round-trip.
    */
-  private function complete(HttpRequest $request, QueueRecord $queue, string $processorName): HttpResponse {
+  private function complete(HttpRequest $request, QueueRecord $queue, ProcessorInstance $processor): HttpResponse {
     $access = $this->queueService->findProcessorEntry($queue, $request->getQuery('requestId'), $request->getQuery('pollingSalt'), $request->getQuery('pollingHash'));
     if ($access === null) {
       return HttpResponse::fault(QueueService::FAULT_WRONG_REQUEST);
@@ -170,7 +174,7 @@ final class ProcessorEndpoint {
       return $this->buildDequeueResponse($queue, null, $exception->getMessage());
     }
     $queue = $this->queues->learnMethods($queue, $filter->getMentionedNames());
-    return $this->buildDequeueResponse($queue, $this->queueService->dequeue($queue, $filter, $processorName), null);
+    return $this->buildDequeueResponse($queue, $this->queueService->dequeue($queue, $filter, $processor), null);
   }
 
   /**
@@ -197,17 +201,6 @@ final class ProcessorEndpoint {
       'heartbeatSec' => $this->settings->getInt('heartbeatSec'),
       'fault' => null,
     ]));
-  }
-
-  /**
-   * The processor name is informational only (no security identity); keep it short and printable.
-   */
-  private static function sanitizeProcessorName(?string $processorName): string {
-    $processorName = trim((string) preg_replace('/[\x00-\x1F\x7F]/u', '', (string) $processorName));
-    if ($processorName === '') {
-      return 'unnamed';
-    }
-    return mb_substr($processorName, 0, self::MAX_PROCESSOR_NAME_LENGTH);
   }
 
 }

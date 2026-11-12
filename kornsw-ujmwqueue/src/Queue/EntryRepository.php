@@ -145,7 +145,7 @@ final class EntryRepository {
    */
   public function findStale(EntryState $state, string $timeColumn, int $olderThanMs, int $limit): array {
     global $wpdb;
-    if (!in_array($timeColumn, ['allocated_ms', 'heartbeat_ms'], true)) {
+    if (!in_array($timeColumn, ['allocated_ms', 'heartbeat_ms', 'queued_ms'], true)) {
       throw new \InvalidArgumentException('Unsupported time column');
     }
     $table = Schema::entriesTable();
@@ -220,24 +220,94 @@ final class EntryRepository {
   }
 
   /**
-   * Returns the number of active (allocated or leased) entries per processor name of one queue.
+   * Returns the number of active (allocated or leased) entries per processor instance id, optionally restricted
+   * to one queue.
    *
-   * @return array<string, int>
+   * @return array<int, int>
    */
-  public function countActivePerProcessor(int $queueId): array {
+  public function countActivePerProcessor(?int $queueId): array {
+    global $wpdb;
+    $table = Schema::entriesTable();
+    $sql = "SELECT processor_id, COUNT(*) AS total FROM {$table} WHERE state IN (%s, %s)";
+    $arguments = [EntryState::Allocated->value, EntryState::Leased->value];
+    if ($queueId !== null) {
+      $sql .= ' AND queue_id = %d';
+      $arguments[] = $queueId;
+    }
+    $sql .= ' GROUP BY processor_id';
+    $counts = [];
+    foreach ($wpdb->get_results($wpdb->prepare($sql, $arguments)) as $row) {
+      $counts[(int) $row->processor_id] = (int) $row->total;
+    }
+    return $counts;
+  }
+
+  /**
+   * Returns the number of queued and active entries per queue id.
+   *
+   * @return array<int, array{queued: int, active: int}>
+   */
+  public function countOpenPerQueue(): array {
     global $wpdb;
     $table = Schema::entriesTable();
     $rows = $wpdb->get_results($wpdb->prepare(
-      "SELECT processor_name, COUNT(*) AS total FROM {$table} WHERE queue_id = %d AND state IN (%s, %s) GROUP BY processor_name",
-      $queueId,
+      "SELECT queue_id, state, COUNT(*) AS total FROM {$table} WHERE state IN (%s, %s, %s) GROUP BY queue_id, state",
+      EntryState::Queued->value,
       EntryState::Allocated->value,
       EntryState::Leased->value
     ));
     $counts = [];
     foreach ($rows as $row) {
-      $counts[(string) $row->processor_name] = (int) $row->total;
+      $queueId = (int) $row->queue_id;
+      if (!isset($counts[$queueId])) {
+        $counts[$queueId] = ['queued' => 0, 'active' => 0];
+      }
+      if ((string) $row->state === EntryState::Queued->value) {
+        $counts[$queueId]['queued'] += (int) $row->total;
+      } else {
+        $counts[$queueId]['active'] += (int) $row->total;
+      }
     }
     return $counts;
+  }
+
+  /**
+   * Returns the ids of the queues that have queued entries.
+   *
+   * @return list<int>
+   */
+  public function getQueueIdsWithQueuedEntries(): array {
+    global $wpdb;
+    $table = Schema::entriesTable();
+    $values = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT queue_id FROM {$table} WHERE state = %s", EntryState::Queued->value));
+    return array_map('intval', $values);
+  }
+
+  /**
+   * Returns the active (allocated or leased) entries of a processor instance or of a queue.
+   *
+   * @return list<Entry>
+   */
+  public function findActive(?int $processorId, ?int $queueId, int $limit): array {
+    global $wpdb;
+    $table = Schema::entriesTable();
+    $sql = "SELECT * FROM {$table} WHERE state IN (%s, %s)";
+    $arguments = [EntryState::Allocated->value, EntryState::Leased->value];
+    if ($processorId !== null) {
+      $sql .= ' AND processor_id = %d';
+      $arguments[] = $processorId;
+    }
+    if ($queueId !== null) {
+      $sql .= ' AND queue_id = %d';
+      $arguments[] = $queueId;
+    }
+    $sql .= ' ORDER BY id ASC LIMIT %d';
+    $arguments[] = $limit;
+    $entries = [];
+    foreach ($wpdb->get_results($wpdb->prepare($sql, $arguments)) as $row) {
+      $entries[] = Entry::fromRow($row);
+    }
+    return $entries;
   }
 
 }

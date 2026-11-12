@@ -8,7 +8,8 @@ use KornSW\UjmwQueue\Http\HttpRequest;
 use KornSW\UjmwQueue\Http\HttpResponse;
 
 /**
- * Checks the access key of a relay request: 'Authorization: Bearer <key>' or, for hosts that strip the
+ * Checks the access key of a relay request: 'Authorization: Bearer <key>' (or just 'Authorization: <key>') or, for
+ * hosts that strip the
  * Authorization header, 'X-Ujmw-Queue-Key: <key>'. The key must have one of the accepted roles and a route
  * pattern matching the route.
  */
@@ -44,7 +45,8 @@ final class AccessGuard {
    */
   private function extractKey(HttpRequest $request): ?string {
     $authorization = $request->getHeader('Authorization');
-    if ($authorization !== null && preg_match('/^\s*Bearer\s+(\S+)\s*$/i', $authorization, $matches) === 1) {
+    // the scheme 'Bearer ' is optional: 'Authorization: <key>' works as well
+    if ($authorization !== null && preg_match('/^\s*(?:Bearer\s+)?(\S+)\s*$/i', $authorization, $matches) === 1) {
       return $matches[1];
     }
     $fallback = $request->getHeader(self::FALLBACK_HEADER);

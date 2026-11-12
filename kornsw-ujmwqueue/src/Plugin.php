@@ -4,14 +4,21 @@ declare(strict_types=1);
 
 namespace KornSW\UjmwQueue;
 
+use KornSW\UjmwQueue\Admin\AdminAjax;
 use KornSW\UjmwQueue\Admin\AdminPage;
+use KornSW\UjmwQueue\Admin\StatusSnapshot;
+use KornSW\UjmwQueue\Api\QueueApi;
 use KornSW\UjmwQueue\Http\RelayRouter;
+use KornSW\UjmwQueue\Maintenance\Retention;
+use KornSW\UjmwQueue\Monitoring\Notifier;
+use KornSW\UjmwQueue\Processors\ProcessorRegistry;
 use KornSW\UjmwQueue\Queue\EntryRepository;
 use KornSW\UjmwQueue\Queue\QueueRepository;
 use KornSW\UjmwQueue\Queue\QueueService;
 use KornSW\UjmwQueue\Queue\QueueStatistics;
 use KornSW\UjmwQueue\Queue\TerminationLog;
 use KornSW\UjmwQueue\Relay\CallerEndpoint;
+use KornSW\UjmwQueue\Relay\CallerOperations;
 use KornSW\UjmwQueue\Relay\ProcessorEndpoint;
 use KornSW\UjmwQueue\Security\AccessGuard;
 use KornSW\UjmwQueue\Security\KeyStore;
@@ -21,11 +28,18 @@ use KornSW\UjmwQueue\Security\KeyStore;
  */
 final class Plugin {
 
+  /**
+   * Action fired once the plugin is booted; receives the in-process client API ('Api\QueueApi').
+   */
+  public const READY_ACTION = 'kornsw_uq_ready';
+
   private static ?Plugin $instance = null;
 
   private function __construct(
     private readonly RelayRouter $relayRouter,
-    private readonly AdminPage $adminPage
+    private readonly AdminPage $adminPage,
+    private readonly AdminAjax $adminAjax,
+    private readonly QueueApi $api
   ) {
   }
 
@@ -39,7 +53,7 @@ final class Plugin {
   }
 
   /**
-   * Boots the plugin once (hooked to plugins_loaded).
+   * Boots the plugin once (hooked to plugins_loaded; also triggered by 'QueueApi::get()').
    */
   public static function boot(): void {
     if (self::$instance !== null) {
@@ -48,6 +62,15 @@ final class Plugin {
     Schema::upgradeIfNeeded();
     self::$instance = self::create();
     self::$instance->registerHooks();
+    do_action(self::READY_ACTION, self::$instance->api);
+  }
+
+  /**
+   * Returns the in-process client API (boots the plugin if necessary).
+   */
+  public static function getApi(): QueueApi {
+    self::boot();
+    return self::$instance->api;
   }
 
   /**
@@ -60,21 +83,37 @@ final class Plugin {
     $queueRepository = new QueueRepository();
     $entryRepository = new EntryRepository();
     $terminationLog = new TerminationLog();
-    $queueService = new QueueService($settings, $queueRepository, $entryRepository, $terminationLog);
+    $processorRegistry = new ProcessorRegistry();
+    $notifier = new Notifier($settings);
+    $retention = new Retention($settings, $processorRegistry, $queueRepository, $entryRepository);
+    $queueService = new QueueService(
+      $settings,
+      $queueRepository,
+      $entryRepository,
+      $terminationLog,
+      $processorRegistry,
+      $notifier,
+      $retention
+    );
+    $callerOperations = new CallerOperations($settings, $queueService);
 
-    $callerEndpoint = new CallerEndpoint($settings, $queueRepository, $queueService, $accessGuard);
+    $callerEndpoint = new CallerEndpoint($queueRepository, $queueService, $callerOperations, $accessGuard);
     $processorEndpoint = new ProcessorEndpoint(
       $settings,
       $queueRepository,
       $entryRepository,
       $queueService,
-      new QueueStatistics($entryRepository, $terminationLog),
+      new QueueStatistics($entryRepository, $terminationLog, $processorRegistry),
+      $processorRegistry,
       $accessGuard
     );
+    $snapshot = new StatusSnapshot($queueRepository, $entryRepository, $processorRegistry);
 
     return new Plugin(
       new RelayRouter($settings, $queueRepository, $callerEndpoint, $processorEndpoint),
-      new AdminPage($settings, $keyStore, $queueRepository, $entryRepository)
+      new AdminPage($settings, $keyStore),
+      new AdminAjax($queueRepository, $processorRegistry, $entryRepository, $queueService, $snapshot),
+      new QueueApi($queueRepository, $queueService, $callerOperations)
     );
   }
 
@@ -85,6 +124,7 @@ final class Plugin {
     $this->relayRouter->register();
     if (is_admin()) {
       $this->adminPage->register();
+      $this->adminAjax->register();
     }
   }
 

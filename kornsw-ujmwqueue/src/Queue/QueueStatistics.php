@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace KornSW\UjmwQueue\Queue;
 
 use KornSW\UjmwQueue\Clock;
+use KornSW\UjmwQueue\Processors\Liveness;
+use KornSW\UjmwQueue\Processors\LockState;
+use KornSW\UjmwQueue\Processors\ProcessorRegistry;
 
 /**
  * Builds the statistics of 'GET <route>/_queue' (queued / active entries, terminations in sliding windows,
@@ -14,7 +17,8 @@ final class QueueStatistics {
 
   public function __construct(
     private readonly EntryRepository $entries,
-    private readonly TerminationLog $terminationLog
+    private readonly TerminationLog $terminationLog,
+    private readonly ProcessorRegistry $processors
   ) {
   }
 
@@ -61,10 +65,13 @@ final class QueueStatistics {
 
     $activePerProcessor = $this->entries->countActivePerProcessor($queue->id);
     $processors = [];
-    foreach ($queue->processors as $processorName => $lastActivityMs) {
-      $processors[$processorName] = (object) [
-        'active' => $activePerProcessor[$processorName] ?? 0,
-        'lastActivity' => Clock::toIsoUtc($lastActivityMs),
+    foreach ($this->processors->getForQueue($queue->id) as $instance) {
+      $activeJobs = $activePerProcessor[$instance->id] ?? 0;
+      $processors[$instance->getFullName()] = (object) [
+        'active' => $activeJobs,
+        'lastActivity' => Clock::toIsoUtc($instance->lastSeenMs),
+        'status' => Liveness::of($instance->lastSeenMs, $nowMs, $activeJobs),
+        'lock' => LockState::of($instance->lockLevel, $activeJobs),
       ];
     }
 
@@ -72,6 +79,7 @@ final class QueueStatistics {
       'statsTotal' => (object) $total,
       'statsPerMethod' => (object) $perMethodObjects,
       'processors' => (object) $processors,
+      'lock' => LockState::of($queue->lockLevel, $total['active']),
       'fault' => null,
     ];
   }

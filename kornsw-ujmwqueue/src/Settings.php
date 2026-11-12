@@ -6,16 +6,22 @@ namespace KornSW\UjmwQueue;
 
 /**
  * Settings of the relay, stored in one array option. Defaults follow the UJMW queue epic (Q-TIMING, Q-CAP, Q-RET).
+ * Every setting belongs to a section (= admin tab); saving a section leaves the other sections untouched.
  */
 final class Settings {
 
   public const OPTION_NAME = 'kornsw_uq_settings';
+
+  public const SECTION_SECURITY = 'security';
+
+  public const SECTION_SETTINGS = 'settings';
 
   /**
    * Integer settings: name => [default, minimum, maximum].
    */
   private const INTEGER_SETTINGS = [
     'maxQueueSize' => [1000, 1, 100000],
+    'incomingCallQueueWaitTimeoutSec' => [60, 1, 86400],
     'dequeueConfirmationTimeoutSec' => [2, 1, 60],
     'heartbeatSec' => [3, 1, 300],
     'leaseLossTimeoutSec' => [60, 5, 3600],
@@ -26,6 +32,20 @@ final class Settings {
     'maxOutcomePreservTime' => [300, 10, 86400],
     'outcomeCleanupLimit' => [100, 1, 100000],
     'throttlingLevel' => [1, 0, 100],
+    'processorRetentionDays' => [30, 1, 3650],
+    'endpointRetentionUsedDays' => [200, 1, 3650],
+    'endpointRetentionUnusedDays' => [1, 1, 3650],
+  ];
+
+  /**
+   * Boolean settings: name => [default, section].
+   */
+  private const BOOLEAN_SETTINGS = [
+    'allowAnonymousInfo' => [false, self::SECTION_SETTINGS],
+    'instanceRetentionEnabled' => [true, self::SECTION_SETTINGS],
+    'processorRetentionEnabled' => [false, self::SECTION_SETTINGS],
+    'endpointRetentionEnabled' => [false, self::SECTION_SETTINGS],
+    'lockNewEndpoints' => [false, self::SECTION_SECURITY],
   ];
 
   public const DEFAULT_URL_PREFIX = 'ujmw';
@@ -41,8 +61,11 @@ final class Settings {
   public static function getDefaults(): array {
     $defaults = [
       'urlPrefix' => self::DEFAULT_URL_PREFIX,
-      'allowAnonymousInfo' => false,
+      'notificationEmail' => '',
     ];
+    foreach (self::BOOLEAN_SETTINGS as $name => $definition) {
+      $defaults[$name] = $definition[0];
+    }
     foreach (self::INTEGER_SETTINGS as $name => $definition) {
       $defaults[$name] = $definition[0];
     }
@@ -72,6 +95,18 @@ final class Settings {
   }
 
   /**
+   * Returns a boolean setting.
+   */
+  public function getBool(string $name): bool {
+    $definition = self::BOOLEAN_SETTINGS[$name];
+    $values = $this->load();
+    if (!array_key_exists($name, $values)) {
+      return $definition[0];
+    }
+    return (bool) $values[$name];
+  }
+
+  /**
    * The first path segment below the site URL that is handled by the relay (e.g. 'ujmw').
    */
   public function getUrlPrefix(): string {
@@ -87,25 +122,52 @@ final class Settings {
    * Whether 'GET <route>/_queue' (statistics) may be called without an access key.
    */
   public function isAnonymousInfoAllowed(): bool {
-    $values = $this->load();
-    return (bool) ($values['allowAnonymousInfo'] ?? false);
+    return $this->getBool('allowAnonymousInfo');
   }
 
   /**
-   * Validates and stores the settings submitted by the admin page.
+   * Recipient of the admin notifications (falls back to the site's admin email).
+   */
+  public function getNotificationEmail(): string {
+    $values = $this->load();
+    $email = sanitize_email((string) ($values['notificationEmail'] ?? ''));
+    if ($email === '') {
+      return (string) get_option('admin_email');
+    }
+    return $email;
+  }
+
+  /**
+   * The configured notification email as entered (may be empty).
+   */
+  public function getConfiguredNotificationEmail(): string {
+    $values = $this->load();
+    return (string) ($values['notificationEmail'] ?? '');
+  }
+
+  /**
+   * Validates and stores the settings of one section submitted by the admin page; other sections stay unchanged.
+   * Missing checkboxes of the section mean "off".
    *
    * @param array<string, mixed> $input
    */
-  public function save(array $input): void {
-    $values = self::getDefaults();
-    $prefix = self::sanitizeUrlPrefix((string) ($input['urlPrefix'] ?? ''));
-    if ($prefix !== '') {
-      $values['urlPrefix'] = $prefix;
+  public function save(array $input, string $section): void {
+    $values = $this->load();
+    foreach (self::BOOLEAN_SETTINGS as $name => $definition) {
+      if ($definition[1] === $section) {
+        $values[$name] = !empty($input[$name]);
+      }
     }
-    $values['allowAnonymousInfo'] = !empty($input['allowAnonymousInfo']);
-    foreach (self::INTEGER_SETTINGS as $name => $definition) {
-      if (isset($input[$name]) && is_numeric($input[$name])) {
-        $values[$name] = max($definition[1], min($definition[2], (int) $input[$name]));
+    if ($section === self::SECTION_SETTINGS) {
+      $prefix = self::sanitizeUrlPrefix((string) ($input['urlPrefix'] ?? ''));
+      if ($prefix !== '') {
+        $values['urlPrefix'] = $prefix;
+      }
+      $values['notificationEmail'] = sanitize_email((string) ($input['notificationEmail'] ?? ''));
+      foreach (self::INTEGER_SETTINGS as $name => $definition) {
+        if (isset($input[$name]) && is_numeric($input[$name])) {
+          $values[$name] = max($definition[1], min($definition[2], (int) $input[$name]));
+        }
       }
     }
     update_option(self::OPTION_NAME, $values, false);

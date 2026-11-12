@@ -4,7 +4,7 @@ WordPress plugin that turns a WordPress site into a publicly reachable **relay h
 
 The relay is **contract-agnostic**: it does not know any contract. Routes are learned when the first processor connects, method names are learned from calls and processor filters, and request / response JSON is passed through unchanged (including the UJMW sidechannel `_`).
 
-Status: initial version (0.x) - caller side incl. long-running protocol, processor side `_queue`, access keys, admin page. See [Quickstart](doc/quickstart.md).
+Status: 0.x - caller side incl. long-running protocol, processor side `_queue`, access keys, live admin tabs (processors, endpoints, locks, monitoring), retention, in-process API for other plugins. See [Quickstart](doc/quickstart.md).
 
 ## Motivation
 
@@ -25,6 +25,7 @@ Caller     GET  https://example.org/ujmw/api/reports/RenderReport?asyncId=...&po
 - [Requirements](doc/requirements.md)
 - [Architecture](doc/architecture.md)
 - [Quickstart](doc/quickstart.md)
+- [In-process client API for other plugins](doc/api.md)
 - [Changelog](doc/changelog.md)
 - [Decisions](doc/decisions/)
 - [Work: backlog](doc/work/backlog.md)

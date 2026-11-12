@@ -1,0 +1,203 @@
+/* KornSW UjmwQueue - admin page */
+
+.kornsw-uq .nav-tab-wrapper {
+  margin-bottom: 12px;
+}
+
+.kornsw-uq-table td {
+  vertical-align: top;
+}
+
+.kornsw-uq-legend {
+  line-height: 2;
+}
+
+/* status LEDs */
+.kornsw-uq-led {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  vertical-align: middle;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.kornsw-uq-led-idle {
+  background: #2ecc40;
+  box-shadow: 0 0 4px #2ecc40;
+}
+
+.kornsw-uq-led-busy {
+  background: #2ecc40;
+  box-shadow: 0 0 4px #2ecc40;
+  animation: kornsw-uq-flicker 0.6s steps(1, end) infinite;
+}
+
+.kornsw-uq-led-silent {
+  background: #f5c400;
+  box-shadow: 0 0 4px #f5c400;
+}
+
+.kornsw-uq-led-offline {
+  background: #5a5a5a;
+}
+
+/* irregular on/off pattern like the activity LED of a network port */
+@keyframes kornsw-uq-flicker {
+  0% { opacity: 1; }
+  12% { opacity: 0.15; }
+  20% { opacity: 1; }
+  38% { opacity: 0.2; }
+  45% { opacity: 1; }
+  60% { opacity: 0.1; }
+  66% { opacity: 1; }
+  83% { opacity: 0.25; }
+  90% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kornsw-uq-led-busy {
+    animation: none;
+    background: #7fff8a;
+  }
+}
+
+.kornsw-uq-instance {
+  white-space: nowrap;
+  line-height: 22px;
+}
+
+.kornsw-uq-instance-name {
+  font-family: Consolas, Monaco, monospace;
+}
+
+.kornsw-uq-count {
+  color: #50575e;
+}
+
+.kornsw-uq-cancel {
+  font-size: 11px;
+  text-decoration: none;
+}
+
+/* lock ("no entry") icon */
+.kornsw-uq-lock {
+  display: inline-block;
+  padding: 0;
+  margin: 0 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 0;
+}
+
+.kornsw-uq-lock svg {
+  width: 13px;
+  height: 13px;
+}
+
+.kornsw-uq-lock svg rect {
+  fill: #fff;
+}
+
+.kornsw-uq-lock-none svg circle {
+  fill: #b4b9be;
+}
+
+.kornsw-uq-lock-none:hover svg circle {
+  fill: #8c8f94;
+}
+
+.kornsw-uq-lock-draining svg circle {
+  fill: #f08c00;
+}
+
+.kornsw-uq-lock-locked svg circle {
+  fill: #d63638;
+}
+
+/* job counters */
+.kornsw-uq-zero {
+  color: #8c8f94;
+}
+
+.kornsw-uq-queued {
+  color: #2271b1;
+  font-weight: 600;
+}
+
+.kornsw-uq-unserved {
+  color: #d63638;
+  font-weight: 600;
+}
+
+.kornsw-uq-active {
+  color: #006400;
+  font-weight: 600;
+}
+
+.kornsw-uq-methods {
+  max-height: 4.6em;
+  overflow-y: auto;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.5em;
+}
+
+.kornsw-uq-row-actions {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.kornsw-uq-row-actions a {
+  color: #b32d2e;
+}
+
+/* monitoring switch */
+.kornsw-uq-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+}
+
+.kornsw-uq-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.kornsw-uq-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  background: #b4b9be;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.kornsw-uq-switch span::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.kornsw-uq-switch input:checked + span {
+  background: #2271b1;
+}
+
+.kornsw-uq-switch input:checked + span::before {
+  transform: translateX(16px);
+}
+
+.kornsw-uq-switch input:focus-visible + span {
+  outline: 2px solid #2271b1;
+  outline-offset: 2px;
+}
