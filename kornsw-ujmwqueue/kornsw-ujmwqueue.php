@@ -1,6 +1,9 @@
 <?php
 /**
  * Plugin Name:       KornSW UjmwQueue
+ * Version: 0.1.0
+ * Update URI: https://raw.githubusercontent.com/KornSW/WP-UjmwQueue/master/doc/kornsw-ujmwqueue.update.json
+ * Plugin URI: https://github.com/KornSW/WP-UjmwQueue
  * Description:       Publicly reachable relay host for the UJMW async queue mode: callers use regular UJMW endpoints, processors behind firewalls pull the calls via '_queue'. Contract-agnostic - routes and methods are learned on demand.
  * Requires at least: 7.1
  * Requires PHP:      8.4
@@ -14,6 +17,13 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) {
   exit;
 }
+
+
+/*************** SELF-UPDATE ***************/
+define( 'KSWKORNSWUJMWQU9C8C_SELF_UPDATE_DIAGNOSTICS', false );
+require_once __DIR__ . '/self-update.php';
+kswkornswujmwqu9c8c_bootstrap( __FILE__ );
+/*******************************************/
 
 define('KORNSW_UQ_FILE', __FILE__);
 define('KORNSW_UQ_DIR', plugin_dir_path(__FILE__));

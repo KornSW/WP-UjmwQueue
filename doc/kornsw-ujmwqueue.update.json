@@ -1,0 +1,14 @@
+{
+  "name": "KornSW UjmwQueue",
+  "version": "0.1.0",
+  "author": "KornSW",
+  "homepage": "https://github.com/KornSW/WP-UjmwQueue",
+  "download_url": "https://github.com/KornSW/WP-UjmwQueue/releases/download/v0.1.0/kornsw-ujmwqueue.zip",
+  "requires": "7.1",
+  "requires_php": "8.4",
+  "tested": "",
+  "sections": {
+    "description": "Publicly reachable relay host for the UJMW async queue mode: callers use regular UJMW endpoints, processors behind firewalls pull the calls via '_queue'. Contract-agnostic - routes and methods are learned on demand.",
+    "changelog": "<h4>Version 0.1.0</h4><ul><li>initial commit</li></ul>"
+  }
+}
