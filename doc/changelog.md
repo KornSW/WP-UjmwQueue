@@ -2,6 +2,10 @@
 
 ## Upcoming Changes
 
+*(none)*
+
+## v 0.1.1
+released **2026-11-12**, including:
  - Access keys: the `Bearer ` prefix of the `Authorization` header is optional.
  - Processor instances: `?processor=<agent>#<instance>`; names without `#` get a synthetic discriminator `MM-dd#HH-mm-ss`.
  - Admin page with the tabs Processors (live LEDs, active jobs, `[CANCEL]`), Endpoints (methods, waiting / active jobs, agents, monitoring switch), Security and Settings; the live tabs refresh every second.
@@ -12,6 +16,7 @@
  - `GET <route>/_queue` and `GET <route>` answer with pretty-printed JSON.
  - In-process client API for other plugins (`KornSW\UjmwQueue\Api\QueueApi`, action `kornsw_uq_ready`), see `doc/api.md`.
  - Database schema version 2 (new tables `kornsw_uq_processors`, `kornsw_uq_processor_queues`; upgraded automatically).
+
 
 ## v 0.1.0
 released **2026-11-12**, including:
