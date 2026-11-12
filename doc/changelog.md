@@ -4,6 +4,12 @@
 
 *(none)*
 
+## v 0.1.2
+released **2026-11-12**, including:
+ - Merge branch 'master' of https://github.com/KornSW/WP-UjmwQueue
+ - iteration 3
+
+
 ## v 0.1.1
 released **2026-11-12**, including:
  - Access keys: the `Bearer ` prefix of the `Authorization` header is optional.

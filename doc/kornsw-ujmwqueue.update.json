@@ -1,14 +1,14 @@
 {
   "name": "KornSW UjmwQueue",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "KornSW",
   "homepage": "https://github.com/KornSW/WP-UjmwQueue",
-  "download_url": "https://github.com/KornSW/WP-UjmwQueue/releases/download/v0.1.1/kornsw-ujmwqueue.zip",
+  "download_url": "https://github.com/KornSW/WP-UjmwQueue/releases/download/v0.1.2/kornsw-ujmwqueue.zip",
   "requires": "7.1",
   "requires_php": "8.4",
   "tested": "",
   "sections": {
     "description": "Publicly reachable relay host for the UJMW async queue mode: callers use regular UJMW endpoints, processors behind firewalls pull the calls via '_queue'. Contract-agnostic - routes and methods are learned on demand.",
-    "changelog": "<h4>Version 0.1.1</h4><ul><li>Access keys: the `Bearer ` prefix of the `Authorization` header is optional.</li><li>Processor instances: `?processor=&lt;agent&gt;#&lt;instance&gt;`; names without `#` get a synthetic discriminator `MM-dd#HH-mm-ss`.</li><li>Admin page with the tabs Processors (live LEDs, active jobs, `[CANCEL]`), Endpoints (methods, waiting / active jobs, agents, monitoring switch), Security and Settings; the live tabs refresh every second.</li><li>Two-stage lock (drain / kill) per processor instance and per endpoint; new faults `Processor-Lock applied during execution`, `Endpoint-Lock applied during execution`, `Cancelled by administrator`.</li><li>New fault `No processor available`: immediately without an available processor, otherwise after the new setting `incomingCallQueueWaitTimeoutSec` (default 60 s).</li><li>Email notifications (monitoring per endpoint: overflow, no processor; new endpoints locked by default with approval notification); setting *Notification email*.</li><li>Retention of processor instances (default on), processors (30 days) and endpoints (200 days / 1 day), the last two off by default.</li><li>`GET &lt;route&gt;/_queue` and `GET &lt;route&gt;` answer with pretty-printed JSON.</li><li>In-process client API for other plugins (`KornSW\\UjmwQueue\\Api\\QueueApi`, action `kornsw_uq_ready`), see `doc/api.md`.</li><li>Database schema version 2 (new tables `kornsw_uq_processors`, `kornsw_uq_processor_queues`; upgraded automatically).</li></ul>"
+    "changelog": "<h4>Version 0.1.2</h4><ul><li>Merge branch &#x27;master&#x27; of https://github.com/KornSW/WP-UjmwQueue</li><li>iteration 3</li></ul>"
   }
 }

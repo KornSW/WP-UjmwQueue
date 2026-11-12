@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       KornSW UjmwQueue
- * Version: 0.1.1
+ * Version: 0.1.2
  * Update URI: https://raw.githubusercontent.com/KornSW/WP-UjmwQueue/master/doc/kornsw-ujmwqueue.update.json
  * Plugin URI: https://github.com/KornSW/WP-UjmwQueue
  * Description:       Publicly reachable relay host for the UJMW async queue mode: callers use regular UJMW endpoints, processors behind firewalls pull the calls via '_queue'. Contract-agnostic - routes and methods are learned on demand.

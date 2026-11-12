@@ -1,13 +1,13 @@
 {
-  "currentVersionWithSuffix": "0.1.1",
+  "currentVersionWithSuffix": "0.1.2",
   "releaseType": "",
-  "currentVersion": "0.1.1",
+  "currentVersion": "0.1.2",
   "currentMajor": 0,
   "currentMinor": 1,
-  "currentFix": 1,
-  "previousVersion": "0.1.0",
+  "currentFix": 2,
+  "previousVersion": "0.1.1",
   "changeGrade": "fix",
-  "versionTimeInfo": "12:15:18",
+  "versionTimeInfo": "13:15:54",
   "versionDateInfo": "2026-11-12",
-  "versionNotes": "- Access keys: the `Bearer ` prefix of the `Authorization` header is optional.\n- Processor instances: `?processor=<agent>#<instance>`; names without `#` get a synthetic discriminator `MM-dd#HH-mm-ss`.\n- Admin page with the tabs Processors (live LEDs, active jobs, `[CANCEL]`), Endpoints (methods, waiting / active jobs, agents, monitoring switch), Security and Settings; the live tabs refresh every second.\n- Two-stage lock (drain / kill) per processor instance and per endpoint; new faults `Processor-Lock applied during execution`, `Endpoint-Lock applied during execution`, `Cancelled by administrator`.\n- New fault `No processor available`: immediately without an available processor, otherwise after the new setting `incomingCallQueueWaitTimeoutSec` (default 60 s).\n- Email notifications (monitoring per endpoint: overflow, no processor; new endpoints locked by default with approval notification); setting *Notification email*.\n- Retention of processor instances (default on), processors (30 days) and endpoints (200 days / 1 day), the last two off by default.\n- `GET <route>/_queue` and `GET <route>` answer with pretty-printed JSON.\n- In-process client API for other plugins (`KornSW\\UjmwQueue\\Api\\QueueApi`, action `kornsw_uq_ready`), see `doc/api.md`.\n- Database schema version 2 (new tables `kornsw_uq_processors`, `kornsw_uq_processor_queues`; upgraded automatically).\n"
+  "versionNotes": "- Merge branch 'master' of https://github.com/KornSW/WP-UjmwQueue\n- iteration 3\n"
 }
