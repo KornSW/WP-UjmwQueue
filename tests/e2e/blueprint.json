@@ -1,0 +1,16 @@
+{
+ "preferredVersions": {
+  "php": "8.4",
+  "wp": "7.1"
+ },
+ "steps": [
+  {
+   "step": "activatePlugin",
+   "pluginPath": "kornsw-ujmwqueue/kornsw-ujmwqueue.php"
+  },
+  {
+   "step": "runPHP",
+   "code": "<?php require '/wordpress/wp-load.php'; update_option('permalink_structure', '/%postname%/'); update_option('kornsw_uq_keys', [['id'=>'k1','label'=>'caller','role'=>'caller','routes'=>'*','hash'=>hash('sha256','uq_testcaller'),'createdUtc'=>''],['id'=>'k2','label'=>'proc','role'=>'processor','routes'=>'api/*','hash'=>hash('sha256','uq_testprocessor'),'createdUtc'=>'']], false); $s = get_option('kornsw_uq_settings'); $s['synchronousCallTimeoutSec'] = 25; $s['leaseLossTimeoutSec'] = 20; $s['dequeueConfirmationTimeoutSec'] = 15; update_option('kornsw_uq_settings', $s, false); echo 'ok';"
+  }
+ ]
+}
