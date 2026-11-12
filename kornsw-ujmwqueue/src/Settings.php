@@ -32,6 +32,7 @@ final class Settings {
     'maxOutcomePreservTime' => [300, 10, 86400],
     'outcomeCleanupLimit' => [100, 1, 100000],
     'throttlingLevel' => [1, 0, 100],
+    'processorSilentAfterSec' => [180, 10, 3540],
     'processorRetentionDays' => [30, 1, 3650],
     'endpointRetentionUsedDays' => [200, 1, 3650],
     'endpointRetentionUnusedDays' => [1, 1, 3650],
@@ -92,6 +93,13 @@ final class Settings {
       $value = (int) $values[$name];
     }
     return max($definition[1], min($definition[2], $value));
+  }
+
+  /**
+   * Milliseconds without contact after which a processor instance turns yellow and no longer counts as available.
+   */
+  public function getProcessorSilentAfterMs(): int {
+    return $this->getInt('processorSilentAfterSec') * 1000;
   }
 
   /**

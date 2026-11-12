@@ -23,7 +23,7 @@
   var statusTitles = {
     idle: 'idle (polling regularly)',
     busy: 'busy',
-    silent: 'no contact for 5 minutes',
+    silent: 'no recent contact',
     offline: 'offline (no contact for 60 minutes)'
   };
   var lockTitles = {
@@ -85,13 +85,31 @@
       + '</button>';
   }
 
+  /* Load bar for instances that announce a capacity > 1 ('&capacity=' on dequeue / completion). */
+  function renderLoadBar(active, capacity) {
+    if (!(capacity > 1)) {
+      return '';
+    }
+    var percent = Math.min(100, Math.round((active / capacity) * 100));
+    var level = 'low';
+    if (percent >= 90) {
+      level = 'high';
+    } else if (percent >= 60) {
+      level = 'medium';
+    }
+    return ' <span class="kornsw-uq-load" title="' + escapeHtml(active + ' of ' + capacity + ' jobs (' + percent + ' %)') + '">'
+      + '<span class="kornsw-uq-load-' + level + '" style="width:' + percent + '%"></span></span>'
+      + ' <span class="kornsw-uq-capacity">/' + escapeHtml(capacity) + '</span>';
+  }
+
   function renderInstance(instance) {
     var html = '<div class="kornsw-uq-instance">'
       + '<span class="kornsw-uq-led kornsw-uq-led-' + escapeHtml(instance.status) + '"'
       + ' title="' + escapeHtml((statusTitles[instance.status] || instance.status) + ', last contact ' + instance.lastSeen) + '"></span> '
       + '<span class="kornsw-uq-instance-name">' + escapeHtml(instance.name) + '</span> '
       + renderLockButton('processor', instance.id, instance.lock)
-      + ' <span class="kornsw-uq-count">(' + escapeHtml(instance.active) + ')</span>';
+      + ' <span class="kornsw-uq-count">(' + escapeHtml(instance.active) + ')</span>'
+      + renderLoadBar(instance.active, instance.capacity);
     if (instance.active > 0) {
       html += ' <a href="#" class="kornsw-uq-cancel" data-action="processor-cancel" data-id="' + escapeHtml(instance.id) + '">[CANCEL]</a>';
     }

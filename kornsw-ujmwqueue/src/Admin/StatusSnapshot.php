@@ -12,6 +12,7 @@ use KornSW\UjmwQueue\Processors\ProcessorRegistry;
 use KornSW\UjmwQueue\Queue\EntryRepository;
 use KornSW\UjmwQueue\Queue\QueueRecord;
 use KornSW\UjmwQueue\Queue\QueueRepository;
+use KornSW\UjmwQueue\Settings;
 
 /**
  * Live data of the admin tabs "Processors" and "Endpoints" (polled every second by the admin script). Built with
@@ -22,7 +23,8 @@ final class StatusSnapshot {
   public function __construct(
     private readonly QueueRepository $queues,
     private readonly EntryRepository $entries,
-    private readonly ProcessorRegistry $processors
+    private readonly ProcessorRegistry $processors,
+    private readonly Settings $settings
   ) {
   }
 
@@ -33,6 +35,7 @@ final class StatusSnapshot {
    */
   public function build(): array {
     $nowMs = Clock::nowMs();
+    $silentAfterMs = $this->settings->getProcessorSilentAfterMs();
     $queues = $this->queues->getAll();
     $instances = $this->processors->getAll();
     $links = $this->processors->getLinks();
@@ -59,13 +62,13 @@ final class StatusSnapshot {
       $routesPerAgent[$instance->agentName][$routesById[$link['queueId']]] = true;
       $agentsPerQueue[$link['queueId']][$instance->agentName] = true;
       $isLinkFresh = ($nowMs - $link['lastSeenMs']) < Liveness::OFFLINE_AFTER_MS;
-      if ($isLinkFresh && $instance->lockLevel === LockState::LEVEL_NONE && Liveness::isAvailable($instance->lastSeenMs, $nowMs)) {
+      if ($isLinkFresh && $instance->lockLevel === LockState::LEVEL_NONE && Liveness::isAvailable($instance->lastSeenMs, $nowMs, $silentAfterMs)) {
         $availableQueueIds[$link['queueId']] = true;
       }
     }
 
     return [
-      'processors' => $this->buildProcessors($instances, $activePerProcessor, $routesPerAgent, $nowMs),
+      'processors' => $this->buildProcessors($instances, $activePerProcessor, $routesPerAgent, $nowMs, $silentAfterMs),
       'endpoints' => $this->buildEndpoints($queues, $openPerQueue, $agentsPerQueue, $availableQueueIds),
     ];
   }
@@ -78,7 +81,7 @@ final class StatusSnapshot {
    * @param array<string, array<string, true>> $routesPerAgent
    * @return list<array<string, mixed>>
    */
-  private function buildProcessors(array $instances, array $activePerProcessor, array $routesPerAgent, int $nowMs): array {
+  private function buildProcessors(array $instances, array $activePerProcessor, array $routesPerAgent, int $nowMs, int $silentAfterMs): array {
     $agents = [];
     foreach ($instances as $instance) {
       $activeJobs = $activePerProcessor[$instance->id] ?? 0;
@@ -90,8 +93,9 @@ final class StatusSnapshot {
       $agents[$instance->agentName]['instances'][] = [
         'id' => $instance->id,
         'name' => '#' . $instance->instanceName,
-        'status' => Liveness::of($instance->lastSeenMs, $nowMs, $activeJobs),
+        'status' => Liveness::of($instance->lastSeenMs, $nowMs, $activeJobs, $silentAfterMs),
         'active' => $activeJobs,
+        'capacity' => $instance->capacity,
         'lock' => LockState::of($instance->lockLevel, $activeJobs),
         'lastSeen' => Clock::toIsoUtc($instance->lastSeenMs),
       ];

@@ -9,7 +9,7 @@ metadata:
 
 ## Status
 
-Initial version implemented 2026-11-11/12: caller side (POST `?wait` / sync, GET poll, DELETE cancel, endpoint info), processor side (`_queue` info, dequeue, heartbeat, return, completion with `dequeueNext`), access keys, admin page, housekeeping. Second iteration 2026-11-12 (schema v2):
+Initial version implemented 2026-11-11/12: caller side (POST `?wait` / sync, GET poll, DELETE cancel, endpoint info), processor side (`_queue` info, dequeue, heartbeat, return, completion with `dequeueNext`), access keys, admin page, housekeeping. Second iteration 2026-11-12 (schema v3 incl. the follow-up: optional `&capacity` on `_queue` GET / POST with a load bar, configurable yellow threshold `processorSilentAfterSec`, default 180 s):
 - processor instances `<agent>#<instance>` with LED status;
 - two-stage locks (drain / kill) per instance and endpoint;
 - `No processor available` (immediate or after `incomingCallQueueWaitTimeoutSec`);
@@ -56,5 +56,5 @@ Repository `UnifiedJsonMessageWrapper` (SmartStandards, local folder `(SmartStan
 ## Testing
 
 - Standalone (WordPress-free classes): `cd tests/php-wasm && npm install` once, then `node tests/php-wasm/run.mjs tests/run-tests.php` and `node tests/php-wasm/lint.mjs` (no native PHP on the dev machine).
-- End-to-end: `tests/e2e/relay-e2e.py` against a **fresh** WordPress Playground started with `tests/e2e/blueprint.json` (instructions in the script header). Also mount `tests/e2e/helper-plugin` (TEST ONLY: admin via header `X-Uq-Test-Admin`, in-process API via `/?uqtest=`). 61 checks passed 2026-11-12. The Playground CLI emits a harmless `EPERM ... stale Playground temp dirs` warning on Windows.
+- End-to-end: `tests/e2e/relay-e2e.py` against a **fresh** WordPress Playground started with `tests/e2e/blueprint.json` (instructions in the script header). Also mount `tests/e2e/helper-plugin` (TEST ONLY: admin via header `X-Uq-Test-Admin`, in-process API via `/?uqtest=`). 63 checks passed 2026-11-12. The Playground CLI emits a harmless `EPERM ... stale Playground temp dirs` warning on Windows.
 - Pitfalls: Playground requests take 2-3 s each, so the blueprint raises the confirmation / lease / sync timeouts; the blueprint must set `preferredVersions` or Playground runs PHP 8.3 and the activation fails; on Windows use `--mount-dir` (a `C:` path breaks `--mount`); stop the Playground server only by its own PID.

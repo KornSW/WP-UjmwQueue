@@ -130,14 +130,17 @@ def processor_sync():
     l = {"requestId": None}
     for _ in range(30):
         st, l = dequeue("Ping")
+        syncLog.append((round(time.time() - t0, 1), l.get("requestId"), l.get("fault")))
         if l["requestId"]:
             break
     put(l)
     complete(l, {"return": "pong", "fault": None})
+syncLog = []
+t0 = time.time()
 th = threading.Thread(target=processor_sync); th.start()
 st, raw = req("POST", "api/reports/Ping", '{"x":1}', key=CALLER, raw=True)
 th.join()
-check(raw == '{"return":"pong","fault":null}', "synchronous call blocks and returns the raw response", raw)
+check(raw == '{"return":"pong","fault":null}', "synchronous call blocks and returns the raw response", (raw, syncLog))
 
 # --- synchronous timeout (setting 6 s in the blueprint)
 t0 = time.time()
@@ -233,8 +236,8 @@ snap = admin("kornsw_uq_processor_lock", id=w1["id"], expected="none")
 check(instance_of(snap, "w1")["lock"] == "locked", "drain lock without jobs is shown red", instance_of(snap, "w1"))
 st, b = req("POST", "api/reports/Locked?wait=0", {}, key=CALLER)
 check(b.get("fault") == "No processor available" and b["async"]["execState"] == 3, "no available processor -> immediate fault", b)
-st, b = dequeue("*", name="w2#node-a")
-check(b["requestId"] is None, "second instance w2#node-a registers", b)
+st, b = req("GET", "api/reports/_queue?processor=w2%23node-a&capacity=4&dequeue=*", key=PROC)
+check(b["requestId"] is None, "second instance w2#node-a registers (announcing capacity 4)", b)
 st, b = req("POST", "api/reports/Drain?wait=0", {}, key=CALLER); aD = b["async"]
 st, b = dequeue("*")
 check(b["requestId"] is None, "locked instance w1 receives no job", b)
@@ -245,6 +248,10 @@ snap = admin("kornsw_uq_processor_lock", id=w1["id"], expected="locked")
 check(instance_of(snap, "w1")["lock"] == "none", "click on red unlocks", instance_of(snap, "w1"))
 w2 = instance_of(snap, "w2")
 check(w2 is not None and w2["name"] == "#node-a" and w2["active"] == 1 and w2["status"] == "busy", "w2 is busy with one job", w2)
+check(w2["capacity"] == -1 and instance_of(snap, "w1")["capacity"] == -1, "a dequeue without '&capacity' resets the capacity to -1", w2)
+req("GET", "api/reports/_queue?processor=w2%23node-a&capacity=4&dequeue=Nothing", key=PROC)
+snap = admin("kornsw_uq_snapshot")
+check(instance_of(snap, "w2")["capacity"] == 4, "announced capacity is listed", instance_of(snap, "w2"))
 
 # CANCEL link: caller gets a fault, processor gets cancellationRequested
 snap = admin("kornsw_uq_processor_cancel", id=w2["id"])

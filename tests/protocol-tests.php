@@ -129,11 +129,12 @@ TestRun::equals('unnamed', ProcessorName::parse('#x')->agentName, 'missing agent
 TestRun::equals('03-07#14-05-09', ProcessorName::createSyntheticInstanceName(gmmktime(14, 5, 9, 3, 7, 2026), new DateTimeZone('UTC')), 'synthetic discriminator MM-dd#HH-mm-ss');
 
 $nowMs = 10000000000;
-TestRun::equals(Liveness::IDLE, Liveness::of($nowMs - 1000, $nowMs, 0), 'recent contact without jobs -> idle');
-TestRun::equals(Liveness::BUSY, Liveness::of($nowMs - 1000, $nowMs, 2), 'recent contact with jobs -> busy');
-TestRun::equals(Liveness::SILENT, Liveness::of($nowMs - 300000, $nowMs, 2), '5 minutes silence -> silent (yellow)');
-TestRun::equals(Liveness::OFFLINE, Liveness::of($nowMs - 3600000, $nowMs, 0), '60 minutes silence -> offline');
-TestRun::check(Liveness::isAvailable($nowMs - 299999, $nowMs) && !Liveness::isAvailable($nowMs - 300000, $nowMs), 'available only while green');
+$silentMs = 180000;
+TestRun::equals(Liveness::IDLE, Liveness::of($nowMs - 1000, $nowMs, 0, $silentMs), 'recent contact without jobs -> idle');
+TestRun::equals(Liveness::BUSY, Liveness::of($nowMs - 1000, $nowMs, 2, $silentMs), 'recent contact with jobs -> busy');
+TestRun::equals(Liveness::SILENT, Liveness::of($nowMs - 180000, $nowMs, 2, $silentMs), 'configured silence (3 min) -> silent (yellow)');
+TestRun::equals(Liveness::OFFLINE, Liveness::of($nowMs - 3600000, $nowMs, 0, $silentMs), '60 minutes silence -> offline');
+TestRun::check(Liveness::isAvailable($nowMs - 179999, $nowMs, $silentMs) && !Liveness::isAvailable($nowMs - 180000, $nowMs, $silentMs), 'available only while green');
 
 TestRun::equals(LockState::NONE, LockState::of(0, 3), 'level 0 -> none');
 TestRun::equals(LockState::DRAINING, LockState::of(1, 3), 'drain with jobs -> draining (orange)');

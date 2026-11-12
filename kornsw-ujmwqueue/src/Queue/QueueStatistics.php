@@ -8,6 +8,7 @@ use KornSW\UjmwQueue\Clock;
 use KornSW\UjmwQueue\Processors\Liveness;
 use KornSW\UjmwQueue\Processors\LockState;
 use KornSW\UjmwQueue\Processors\ProcessorRegistry;
+use KornSW\UjmwQueue\Settings;
 
 /**
  * Builds the statistics of 'GET <route>/_queue' (queued / active entries, terminations in sliding windows,
@@ -18,7 +19,8 @@ final class QueueStatistics {
   public function __construct(
     private readonly EntryRepository $entries,
     private readonly TerminationLog $terminationLog,
-    private readonly ProcessorRegistry $processors
+    private readonly ProcessorRegistry $processors,
+    private readonly Settings $settings
   ) {
   }
 
@@ -70,7 +72,8 @@ final class QueueStatistics {
       $processors[$instance->getFullName()] = (object) [
         'active' => $activeJobs,
         'lastActivity' => Clock::toIsoUtc($instance->lastSeenMs),
-        'status' => Liveness::of($instance->lastSeenMs, $nowMs, $activeJobs),
+        'capacity' => $instance->capacity,
+        'status' => Liveness::of($instance->lastSeenMs, $nowMs, $activeJobs, $this->settings->getProcessorSilentAfterMs()),
         'lock' => LockState::of($instance->lockLevel, $activeJobs),
       ];
     }

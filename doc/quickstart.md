@@ -12,7 +12,7 @@
 
 ## Operating
 
-- **Processors** tab: green LED = polling, flickering = busy, yellow = no contact for 5 min, off = 60 min. The "no entry" icon behind an instance drains it (orange, no new jobs), a second click kills its running jobs, a click on red unlocks. `[CANCEL]` aborts the running jobs of one instance.
+- **Processors** tab: green LED = polling, flickering = busy, yellow = no contact for 3 min (setting `processorSilentAfterSec`), off = 60 min. A bar shows the load if the instance sends `&capacity=<max jobs>` with its dequeue (GET) and completion (POST). The "no entry" icon behind an instance drains it (orange, no new jobs), a second click kills its running jobs, a click on red unlocks. `[CANCEL]` aborts the running jobs of one instance.
 - **Endpoints** tab: the same lock per endpoint (processors keep running, they just get no jobs of this endpoint). New endpoints that are locked by default are released here.
 
 ## Calling the protocol by hand

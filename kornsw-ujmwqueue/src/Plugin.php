@@ -83,7 +83,7 @@ final class Plugin {
     $queueRepository = new QueueRepository();
     $entryRepository = new EntryRepository();
     $terminationLog = new TerminationLog();
-    $processorRegistry = new ProcessorRegistry();
+    $processorRegistry = new ProcessorRegistry($settings);
     $notifier = new Notifier($settings);
     $retention = new Retention($settings, $processorRegistry, $queueRepository, $entryRepository);
     $queueService = new QueueService(
@@ -103,11 +103,11 @@ final class Plugin {
       $queueRepository,
       $entryRepository,
       $queueService,
-      new QueueStatistics($entryRepository, $terminationLog, $processorRegistry),
+      new QueueStatistics($entryRepository, $terminationLog, $processorRegistry, $settings),
       $processorRegistry,
       $accessGuard
     );
-    $snapshot = new StatusSnapshot($queueRepository, $entryRepository, $processorRegistry);
+    $snapshot = new StatusSnapshot($queueRepository, $entryRepository, $processorRegistry, $settings);
 
     return new Plugin(
       new RelayRouter($settings, $queueRepository, $callerEndpoint, $processorEndpoint),

@@ -75,6 +75,40 @@
   color: #50575e;
 }
 
+/* load bar (active jobs / announced capacity) */
+.kornsw-uq-load {
+  display: inline-block;
+  width: 60px;
+  height: 8px;
+  border-radius: 2px;
+  background: #dcdcde;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.kornsw-uq-load span {
+  display: block;
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.kornsw-uq-load-low {
+  background: #00a32a;
+}
+
+.kornsw-uq-load-medium {
+  background: #dba617;
+}
+
+.kornsw-uq-load-high {
+  background: #d63638;
+}
+
+.kornsw-uq-capacity {
+  color: #8c8f94;
+  font-size: 11px;
+}
+
 .kornsw-uq-cancel {
   font-size: 11px;
   text-decoration: none;

@@ -60,7 +60,7 @@ final class Notifier {
       $queue,
       'No processor available for endpoint ' . $queue->route,
       "Calls to the endpoint '" . $queue->route . "' are waiting or being rejected, but no processor is polling the queue\n"
-        . "(no instance seen within the last 5 minutes, or the endpoint / all instances are locked)."
+        . '(no instance seen within the last ' . $this->settings->getInt('processorSilentAfterSec') . " seconds, or the endpoint / all instances are locked)."
     );
   }
 

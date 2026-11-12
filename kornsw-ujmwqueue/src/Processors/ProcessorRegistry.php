@@ -6,6 +6,7 @@ namespace KornSW\UjmwQueue\Processors;
 
 use KornSW\UjmwQueue\Queue\QueueRecord;
 use KornSW\UjmwQueue\Schema;
+use KornSW\UjmwQueue\Settings;
 
 /**
  * Persistence of the processor instances and of the queues each instance has polled. Every '_queue' request of a
@@ -17,6 +18,22 @@ final class ProcessorRegistry {
    * Minimum gap before the same activity time is written again (reduces write load).
    */
   private const TOUCH_INTERVAL_MS = 1000;
+
+  public function __construct(private readonly Settings $settings) {
+  }
+
+  /**
+   * Stores the capacity (maximum number of concurrent jobs) announced by the instance with a dequeue ('GET') or a
+   * completion ('POST'); -1 = not announced. Written only when it changes.
+   */
+  public function updateCapacity(ProcessorInstance $instance, int $capacity): ProcessorInstance {
+    if ($capacity === $instance->capacity) {
+      return $instance;
+    }
+    global $wpdb;
+    $wpdb->update(Schema::processorsTable(), ['capacity' => $capacity], ['id' => $instance->id], ['%d'], ['%d']);
+    return $instance->withCapacity($capacity);
+  }
 
   /**
    * Returns the instance for the processor name of a request and records its activity. Names without '#' get a
@@ -41,15 +58,7 @@ final class ProcessorRegistry {
     }
     global $wpdb;
     $wpdb->update(Schema::processorsTable(), ['last_seen_ms' => $nowMs], ['id' => $instance->id], ['%d'], ['%d']);
-    return new ProcessorInstance(
-      $instance->id,
-      $instance->agentName,
-      $instance->instanceName,
-      $instance->isSynthetic,
-      $instance->firstSeenMs,
-      $nowMs,
-      $instance->lockLevel
-    );
+    return $instance->withLastSeen($nowMs);
   }
 
   /**
@@ -142,7 +151,7 @@ final class ProcessorRegistry {
     $count = (int) $wpdb->get_var($wpdb->prepare(
       "SELECT COUNT(*) FROM {$processorsTable} p INNER JOIN {$linksTable} l ON l.processor_id = p.id WHERE l.queue_id = %d AND p.lock_level = 0 AND p.last_seen_ms >= %d AND l.last_seen_ms >= %d",
       $queue->id,
-      $nowMs - Liveness::SILENT_AFTER_MS,
+      $nowMs - $this->settings->getProcessorSilentAfterMs(),
       $nowMs - Liveness::OFFLINE_AFTER_MS
     ));
     return $count > 0;
@@ -244,8 +253,9 @@ final class ProcessorRegistry {
         'first_seen_ms' => $nowMs,
         'last_seen_ms' => $nowMs,
         'lock_level' => LockState::LEVEL_NONE,
+        'capacity' => -1,
       ],
-      ['%s', '%s', '%d', '%d', '%d', '%d']
+      ['%s', '%s', '%d', '%d', '%d', '%d', '%d']
     );
     $wpdb->suppress_errors($suppressErrors);
     $instance = $this->findByName($agentName, $instanceName);

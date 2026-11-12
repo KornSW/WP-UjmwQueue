@@ -10,7 +10,7 @@ namespace KornSW\UjmwQueue;
  */
 final class Schema {
 
-  public const VERSION = 2;
+  public const VERSION = 3;
 
   public const VERSION_OPTION = 'kornsw_uq_db_version';
 
@@ -141,6 +141,7 @@ final class Schema {
   first_seen_ms bigint(20) NOT NULL,
   last_seen_ms bigint(20) NOT NULL,
   lock_level tinyint(1) NOT NULL DEFAULT 0,
+  capacity int(11) NOT NULL DEFAULT -1,
   PRIMARY KEY  (id),
   UNIQUE KEY agent_instance (agent_name,instance_name),
   KEY last_seen (last_seen_ms)

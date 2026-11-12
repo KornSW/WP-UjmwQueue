@@ -69,6 +69,9 @@ final class ProcessorEndpoint {
     $queue = $this->queueService->getOrLearnQueue($route);
     $this->processors->link($processor, $queue->id, $nowMs);
     $this->queues->touchProcessor($queue, $nowMs);
+    if ($request->method === 'GET' || $request->method === 'POST') {
+      $processor = $this->processors->updateCapacity($processor, self::parseCapacity($request->getQuery('capacity')));
+    }
 
     if ($request->method === 'GET') {
       return $this->dequeue($request, $queue, $processor);
@@ -175,6 +178,17 @@ final class ProcessorEndpoint {
     }
     $queue = $this->queues->learnMethods($queue, $filter->getMentionedNames());
     return $this->buildDequeueResponse($queue, $this->queueService->dequeue($queue, $filter, $processor), null);
+  }
+
+  /**
+   * The optional '&capacity=<n>' of dequeue and completion requests: the maximum number of concurrent jobs of the
+   * instance (used for the load bar on the admin page). Missing or invalid = -1 (unknown).
+   */
+  private static function parseCapacity(?string $capacity): int {
+    if ($capacity === null || preg_match('/^\d{1,6}$/', trim($capacity)) !== 1) {
+      return -1;
+    }
+    return (int) trim($capacity);
   }
 
   /**

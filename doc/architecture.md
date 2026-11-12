@@ -53,7 +53,7 @@ QueueService ── ProcessorRegistry (wp_kornsw_uq_processors, wp_kornsw_uq_pro
 - **Waiting = long-poll.** Blocking caller requests (`?wait`, synchronous calls, `DELETE ?wait`) re-read the entry every 100–500 ms. Each waiting request occupies a PHP worker; `maxWaitSec` limits this for long-running calls.
 - **Housekeeping on traffic.** No cron: every request (and the 1-second refresh of an open admin tab) runs the housekeeping at most every 2 seconds: withdraw unconfirmed allocations, lease loss, fail calls without an available processor or beyond the incoming call wait timeout, outcome retention, statistics pruning, and, at most every 10 minutes, the retention of instances, processors and endpoints.
 - **Locks without new protocol elements.** A drained instance or endpoint gets empty dequeue answers. A kill terminates the running entries for the caller immediately and keeps the processor secret valid, so the processor's next heartbeat answers `cancellationRequested: true` without a fault, and its `DELETE` confirmation is accepted.
-- **Availability = liveness.** An endpoint counts as served only if it is unlocked and has an unlocked instance with a contact within 5 minutes (any `_queue` request counts, heartbeats included) that has polled this endpoint within the last hour.
+- **Availability = liveness.** An endpoint counts as served only if it is unlocked and has an unlocked instance with a contact within `processorSilentAfterSec` (default 3 minutes) (any `_queue` request counts, heartbeats included) that has polled this endpoint within the last hour.
 
 ## Data
 

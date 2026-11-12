@@ -32,6 +32,7 @@ final class AdminPage {
   private const BEHAVIOR_SETTINGS = [
     'maxQueueSize' => 'Maximum number of queued entries per endpoint (a full queue rejects new calls immediately).',
     'incomingCallQueueWaitTimeoutSec' => 'Seconds a call may wait in the queue without being picked up by a processor (fault "No processor available"). Without any available processor the fault is sent immediately.',
+    'processorSilentAfterSec' => 'Seconds without any contact after which a processor instance turns yellow and no longer counts as available (calls are then rejected with "No processor available" if no other instance is green).',
     'dequeueConfirmationTimeoutSec' => 'Seconds within which the first heartbeat must confirm a dequeue.',
     'heartbeatSec' => 'Heartbeat interval announced to processors.',
     'leaseLossTimeoutSec' => 'Seconds without heartbeat after which a lease is lost (fault "processor lost").',
@@ -169,13 +170,11 @@ final class AdminPage {
    * Live table of the processor agents and their instances.
    */
   private function renderProcessorsTab(): void {
+    $silentMinutes = round($this->settings->getInt('processorSilentAfterSec') / 60, 1);
     echo '<p class="kornsw-uq-legend">';
-    echo '<span class="kornsw-uq-led kornsw-uq-led-idle"></span> idle (polling) ';
-    echo '<span class="kornsw-uq-led kornsw-uq-led-busy"></span> busy ';
-    echo '<span class="kornsw-uq-led kornsw-uq-led-silent"></span> no contact for 5 min ';
-    echo '<span class="kornsw-uq-led kornsw-uq-led-offline"></span> offline (60 min) &nbsp; | &nbsp; ';
-    echo 'Lock: grey = open, orange = draining (no new jobs, running jobs may finish; click again to kill them), red = locked (click to unlock). ';
-    echo '(n) = active jobs.</p>';
+    echo 'LED: green = idle (polling), flickering green = busy, yellow = no contact for ' . esc_html((string) $silentMinutes) . ' min, off = no contact for 60 min.<br>';
+    echo 'Lock: grey = open, orange = draining (no new jobs, running jobs may finish; click again to kill them), red = locked (click to unlock).<br>';
+    echo '(n) = active jobs; the bar shows the load if the instance announces a capacity &gt; 1 (<code>&amp;capacity=</code>).</p>';
     echo '<table class="widefat striped kornsw-uq-table"><thead><tr><th>Processor</th><th>Instances</th><th>Endpoints</th></tr></thead>';
     echo '<tbody id="kornsw-uq-processors"><tr><td colspan="3">Loading&hellip;</td></tr></tbody></table>';
     echo '<noscript><p>This view needs JavaScript.</p></noscript>';
